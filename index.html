@@ -1,0 +1,1227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Coco Sweets — Inventory</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://unpkg.com/lucide-react@0.383.0/dist/umd/lucide-react.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Patrick+Hand&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap" rel="stylesheet"/>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', system-ui, sans-serif; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+const {
+  Package, Search, Plus, AlertTriangle, CheckCircle, ArrowDownCircle, ArrowUpCircle,
+  ClipboardList, Activity, Settings, LogOut, User, Shield, ChevronRight,
+  Trash2, Download, Upload, RotateCcw, Eye, EyeOff, Save, X, Check,
+  BarChart, Clock, Tag, Briefcase, Layers, Minus, RefreshCw,
+  FileText, Database, Lock, Info, Pencil, AlertCircle,
+  ArrowDown, ArrowUp, Box, ShoppingCart, Star
+} = lucideReact;
+
+
+// ─── Brand tokens ───────────────────────────────────────────
+const BERRY = "#870646";
+const PINK = "#F909A8";
+const CREAM = "#FBF4EC";
+const CHOC = "#3B2418";
+const CREAM_DARK = "#F1E4D4";
+const GREEN = "#2e7d32";
+const GREEN_BG = "#EAF4EA";
+const RED = "#b3261e";
+
+// ─── Constants ──────────────────────────────────────────────
+const ACTIVITY_TYPES = ["Production","Purchase","Waste","Return","Adjustment","Lost","Packaging"];
+const ITEM_TYPES = ["","RAW MATERIAL","WIP","ASSET"];
+const ACTIVITY_ICONS = {
+  Production: <Package size={13}/>, Purchase: <ShoppingCart size={13}/>, Waste: <Trash2 size={13}/>,
+  Return: <RotateCcw size={13}/>, Adjustment: <RefreshCw size={13}/>, Lost: <AlertCircle size={13}/>,
+  Packaging: <Box size={13}/>,
+};
+const DEFAULT_STAFF = [
+  { name:"Coco", pin:"0000", role:"admin" },
+  { name:"Yemisi Orilowo", pin:"0000", role:"staff" },
+  { name:"Peace Kwesiaku", pin:"0000", role:"staff" },
+  { name:"Motunrayo Agbojo", pin:"0000", role:"staff" },
+];
+const SEED_ITEMS = [
+  ["RAW-FLO-MIX-001","FLOUR","Bakery","MIX N' BAKE","RAW MATERIAL","grams",27764,5000],
+  ["RAW-SUG-DAN-001","SUGAR","Bakery","DANGOTE","RAW MATERIAL","grams",11803,5000],
+  ["RAW-BUT-TAR-001","BUTTER","Bakery","TAROONA","RAW MATERIAL","grams",15459,3000],
+  ["RAW-POW-DAN-001","POWDERED MILK","Bakery","DANO","RAW MATERIAL","grams",1474,700],
+  ["RAW-YEA-STK-001","YEAST","Bakery","STK ROYAL","RAW MATERIAL","grams",461,50],
+  ["RAW-VAN-BAK-001","VANILLA EXTRACT","Bakery","BAKERS CHAMPION","RAW MATERIAL","grams",782,200],
+  ["RAW-SAL-MR.-001","SALT","Bakery","MR.CHEF","RAW MATERIAL","grams",46,100],
+  ["RAW-EGG-IND-001","EGGS","Bakery","INDUSTRIAL","RAW MATERIAL","pcs",21,15],
+  ["RAW-COC-IND-001","COCOA POWDER","Bakery","INDUSTRIAL","RAW MATERIAL","grams",1604,500],
+  ["RAW-BAK-NAP-001","BAKING POWDER","Bakery","NAPA VALLEY","RAW MATERIAL","grams",1084,200],
+  ["RAW-VEG-MAM-001","VEGETABLE OIL","Bakery","MAMADOR","RAW MATERIAL","grams",5788,3000],
+  ["RAW-BAK-NA-001","BAKING SODA","Bakery","","RAW MATERIAL","grams",269,200],
+  ["RAW-VIN-CHE-001","VINEGAR","Bakery","CHEFS","RAW MATERIAL","grams",3755,150],
+  ["RAW-BAK-BAK-001","BAKER'S CHOICE ICING SUGAR","Bakery","BAKER'S CHOICE","RAW MATERIAL","grams",16383,3000],
+  ["RAW-PIP-MAS-001","PIPING BAGS","Bakery","MASTERS","RAW MATERIAL","pcs",197,20],
+  ["WIP-AME-NA-001","AMERICAN BUTTERCREAM","Bakery","","WIP","grams",10458,0],
+  ["-PET-NA-001","PETTY CASH","","","","",11950,0],
+].map((r,i) => ({ id:"seed-"+i, code:r[0], name:r[1], dept:r[2], brand:r[3], type:r[4], unit:r[5], balance:r[6], reorder:r[7] }));
+
+// ─── Helpers ────────────────────────────────────────────────
+const todayStr = () => new Date().toISOString().slice(0,10);
+const nowStamp = () => { const d=new Date(); return d.toISOString().slice(0,10)+" "+d.toTimeString().slice(0,5); };
+const fmt = (n) => Number(n||0).toLocaleString();
+const statusOf = (it) => Number(it.balance) <= Number(it.reorder||0) ? "REORDER" : "OK";
+const uid = () => Date.now()+"-"+Math.random().toString(36).slice(2,6);
+
+function genCode(form, items) {
+  const typeMap = {"RAW MATERIAL":"RAW", WIP:"WIP", ASSET:"ASS"};
+  const prefix = typeMap[(form.type||"").toUpperCase()]||"";
+  const ic = (form.name||"").trim().toUpperCase().slice(0,3)||"XXX";
+  const bc = (form.brand||"").trim().toUpperCase().slice(0,3)||"NA";
+  const base = `${prefix}-${ic}-${bc}-`;
+  let max=0;
+  items.forEach(i => { const c=i.code||""; if(c.startsWith(base)){ const n=parseInt(c.slice(base.length),10); if(!isNaN(n)&&n>max) max=n; }});
+  return base+String(max+1).padStart(3,"0");
+}
+
+function parseCSV(text) {
+  const rows=[]; let row=[],cur="",inQ=false;
+  for(let i=0;i<text.length;i++) {
+    const c=text[i];
+    if(inQ){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;}else inQ=false; } else cur+=c; }
+    else if(c==='"') inQ=true;
+    else if(c===","){row.push(cur);cur="";}
+    else if(c==="\n"||c==="\r"){ if(c==="\r"&&text[i+1]==="\n")i++; row.push(cur);rows.push(row);row=[];cur=""; }
+    else cur+=c;
+  }
+  if(cur!==""||row.length){row.push(cur);rows.push(row);}
+  return rows;
+}
+
+function migrate(d) {
+  if(!d.audit) d.audit=[];
+  if(Array.isArray(d.staff)&&d.staff.length&&typeof d.staff[0]==="string")
+    d.staff=d.staff.map(n=>({name:n,pin:"0000",role:"staff"}));
+  if(!d.staff||!d.staff.length) d.staff=DEFAULT_STAFF;
+  if(!d.staff.some(s=>s.role==="admin")) d.staff[0].role="admin";
+  d.log=(d.log||[]).map(l=>(l.performedBy?l:{...l,performedBy:l.staff}));
+  return d;
+}
+
+// ─── Shared style primitives ─────────────────────────────────
+const IS = { width:"100%", padding:"11px 13px", borderRadius:10, border:`1.5px solid ${CREAM_DARK}`, background:"#fff", fontSize:15, transition:"border-color .15s" };
+const BP = { background:BERRY, color:"#fff", border:"none", borderRadius:10, padding:"10px 16px", fontWeight:700, fontSize:14, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 };
+const BG = { background:"#fff", color:BERRY, border:`1.5px solid ${CREAM_DARK}`, borderRadius:10, padding:"9px 16px", fontWeight:600, fontSize:14, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 };
+const BD = { background:RED, color:"#fff", border:"none", borderRadius:10, padding:"9px 16px", fontWeight:700, fontSize:14, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 };
+
+// ─── App ────────────────────────────────────────────────────
+function App() {
+  const [data, setData] = useState(null);
+  const [user, setUser] = useState(null);
+  const [tab, setTab] = useState("stock");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("ALL");
+  const [openItem, setOpenItem] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [toast, setToast] = useState({msg:"",type:"ok"});
+  const [exportModal, setExportModal] = useState(null);
+  const saveTimer = useRef(null);
+
+  const [killSwitch, setKillSwitch] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      let d;
+      try { const r=await window.storage.get("coco-inventory-v2",true); d=r&&r.value?migrate(JSON.parse(r.value)):null; } catch(e){d=null;}
+      if(!d) d={items:SEED_ITEMS,log:[],audit:[],staff:DEFAULT_STAFF};
+      setData(d);
+      setKillSwitch(d.killSwitch||false);
+      try { const s=await window.storage.get("coco-session-v2",false); if(s&&s.value){const sess=JSON.parse(s.value);const m=d.staff.find(x=>x.name===sess.name);if(m)setUser({name:m.name,role:m.role});} } catch(e){}
+    })();
+  }, []);
+
+  // auto-refresh — pull latest shared data every 30s to stay in sync across devices
+  const [lastSync, setLastSync] = useState(null);
+  useEffect(() => {
+    if (!data) return;
+    const interval = setInterval(async () => {
+      try {
+        const r = await window.storage.get("coco-inventory-v2", true);
+        if (!r || !r.value) return;
+        const fresh = migrate(JSON.parse(r.value));
+        const freshSig = (fresh.items.length) + "|" + ((fresh.audit[0]&&fresh.audit[0].id) || "") + "|" + ((fresh.log[0]&&fresh.log[0].id) || "") + "|" + (fresh.killSwitch || false);
+        const currSig = (data.items.length) + "|" + ((data.audit[0]&&data.audit[0].id) || "") + "|" + ((data.log[0]&&data.log[0].id) || "") + "|" + (data.killSwitch || false);
+        if (freshSig !== currSig) {
+          setData(fresh);
+          setKillSwitch(fresh.killSwitch || false);
+          if (fresh.killSwitch && user && user.role !== "admin") {
+            setUser(null);
+          }
+        }
+        setLastSync(new Date().toTimeString().slice(0,5));
+      } catch(e) {}
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [data, user]);
+
+  const persist = (next) => {
+    setData(next);
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => { try{await window.storage.set("coco-inventory-v2",JSON.stringify(next),true);}catch(e){} }, 400);
+  };
+
+  const flash = (msg, type="ok") => { setToast({msg,type}); setTimeout(()=>setToast({msg:"",type:"ok"}),2600); };
+
+  const withAudit = (d, action, details, who) => ({
+    ...d, audit:[{id:uid(),ts:nowStamp(),user:who||(user?user.name:"Unknown"),action,details},...d.audit].slice(0,2000)
+  });
+
+  const signIn = async (name, pin) => {
+    if(data.killSwitch) return false;
+    const s=data.staff.find(x=>x.name===name);
+    if(!s||s.pin!==pin) return false;
+    setUser({name:s.name,role:s.role});
+    try{await window.storage.set("coco-session-v2",JSON.stringify({name:s.name}),false);}catch(e){}
+    persist(withAudit(data,"Signed in","",s.name));
+    return true;
+  };
+
+  const toggleKillSwitch = async (val) => {
+    const next = withAudit({...data, killSwitch: val}, val?"Kill switch ON":"Kill switch OFF", val?"All staff sign-in blocked remotely":"Access restored");
+    setKillSwitch(val);
+    // force-sign out current user if turning off (they're admin so exempt — only blocks new logins)
+    persist(next);
+    flash(val ? "🔒 Kill switch ON — no one can sign in" : "✓ Access restored — staff can sign in again");
+  };
+
+  const signOut = async () => {
+    persist(withAudit(data,"Signed out",""));
+    setUser(null);
+    try{await window.storage.delete("coco-session-v2",false);}catch(e){}
+  };
+
+  const isAdmin = user&&user.role==="admin";
+  const items = data?data.items:[];
+  const reorderCount = useMemo(()=>items.filter(i=>statusOf(i)==="REORDER").length,[items]);
+
+  const visible = useMemo(()=>{
+    const q=search.trim().toLowerCase();
+    return items.filter(i=>{
+      if(filter==="REORDER"&&statusOf(i)!=="REORDER") return false;
+      if(filter==="RAW MATERIAL"&&i.type!=="RAW MATERIAL") return false;
+      if(filter==="ASSET"&&i.type!=="ASSET") return false;
+      if(filter==="WIP"&&i.type!=="WIP") return false;
+      if(!q) return true;
+      return (i.name||"").toLowerCase().includes(q)||(i.code||"").toLowerCase().includes(q)||(i.brand||"").toLowerCase().includes(q);
+    }).sort((a,b)=>(a.name||"").localeCompare(b.name||""));
+  },[items,search,filter]);
+
+  const addMovement = (item, mv) => {
+    const qty=Number(mv.qty)||0;
+    if(qty<=0) return flash("Enter a quantity above zero","err");
+    const delta=mv.direction==="in"?qty:-qty;
+    const nextItems=data.items.map(i=>i.id===item.id?{...i,balance:Number(i.balance||0)+delta}:i);
+    const entry={id:uid(),date:mv.date,itemId:item.id,itemName:item.name,code:item.code,staff:mv.staff,performedBy:user.name,activity:mv.activity,qty,direction:mv.direction,unit:item.unit||"",notes:mv.notes||""};
+    let next={...data,items:nextItems,log:[entry,...data.log]};
+    next=withAudit(next,mv.direction==="in"?"Stock in":"Stock out",`${item.name}: ${mv.direction==="in"?"+":"−"}${fmt(qty)} ${item.unit||""} · ${mv.activity}${mv.staff!==user.name?" · on behalf of "+mv.staff:""}${mv.notes?" · "+mv.notes:""}`);
+    persist(next);
+    flash(`${mv.direction==="in"?"Stock in ↑":"Stock out ↓"} recorded — ${item.name}`);
+    setOpenItem(null);
+  };
+
+  const deletePosting = (entry) => {
+    const reversal=entry.direction==="in"?-entry.qty:entry.qty;
+    const exists=data.items.some(i=>i.id===entry.itemId);
+    const nextItems=exists?data.items.map(i=>i.id===entry.itemId?{...i,balance:Number(i.balance||0)+reversal}:i):data.items;
+    let next={...data,items:nextItems,log:data.log.filter(l=>l.id!==entry.id)};
+    next=withAudit(next,"Deleted posting",`${entry.itemName}: was ${entry.direction==="in"?"+":"−"}${fmt(entry.qty)} ${entry.unit||""} · ${entry.date} · ${entry.activity}${exists?` · balance corrected by ${reversal>0?"+":""}${fmt(reversal)}`:" · item removed"}`);
+    persist(next);
+    flash("Posting deleted — balance corrected");
+  };
+
+  const saveItem = (form, editingId) => {
+    if(!form.name.trim()) return flash("Item name is required","err");
+    if(editingId){
+      persist(withAudit({...data,items:data.items.map(i=>i.id===editingId?{...i,...form}:i)},"Edited item",form.name));
+      flash("Item updated ✓");
+    } else {
+      const it={...form,code:genCode(form,data.items),id:uid(),balance:Number(form.balance)||0};
+      persist(withAudit({...data,items:[it,...data.items]},"Added item",`${it.name} (${it.code}) · opening ${fmt(it.balance)}`));
+      flash("Item added — "+it.code);
+    }
+    setShowAdd(false); setOpenItem(null);
+  };
+
+  const deleteItem = (id) => {
+    const it=data.items.find(i=>i.id===id);
+    persist(withAudit({...data,items:data.items.filter(i=>i.id!==id)},"Removed item",it?`${it.name} (${it.code}) · balance was ${fmt(it.balance)} ${it.unit||""}`:""));
+    setOpenItem(null); flash("Item removed — logged in audit trail");
+  };
+
+  const importCSV = (text) => {
+    const rows=parseCSV(text);
+    if(rows.length<2) return flash("Couldn't read that — include the header row","err");
+    const header=rows[0].map(h=>h.trim().toUpperCase());
+    const col=name=>header.findIndex(h=>h.includes(name));
+    const ci={code:col("INVENTORY CODE"),name:col("INVENTORY ITEM"),dept:col("DEPARTMENT"),brand:col("BRAND"),type:col("TYPE"),unit:col("MEASUREMENT"),bal:col("CURRENT BALANCE"),re:col("REORDER LEVEL")};
+    if(ci.name===-1) return flash("'INVENTORY ITEM' column not found in header","err");
+    const num=v=>Number(String(v||"").replace(/,/g,""))||0;
+    const existing=new Set(data.items.map(i=>(i.code||"")+"|"+(i.name||"").trim().toUpperCase()));
+    const added=[];
+    rows.slice(1).forEach((r,idx)=>{
+      const name=(r[ci.name]||"").trim(); if(!name) return;
+      const code=ci.code>-1?(r[ci.code]||"").trim():"";
+      if(existing.has(code+"|"+name.toUpperCase())) return;
+      added.push({id:"imp-"+Date.now()+"-"+idx,code,name,dept:ci.dept>-1?(r[ci.dept]||"").trim():"",brand:ci.brand>-1?(r[ci.brand]||"").trim():"",type:ci.type>-1?(r[ci.type]||"").trim().toUpperCase():"",unit:ci.unit>-1?(r[ci.unit]||"").trim():"",balance:ci.bal>-1?num(r[ci.bal]):0,reorder:ci.re>-1?num(r[ci.re]):0});
+    });
+    if(!added.length) return flash("No new items — everything already exists");
+    persist(withAudit({...data,items:[...data.items,...added]},"Imported CSV",`${added.length} items added`));
+    flash(`Imported ${added.length} items ✓`);
+  };
+
+  const exportCSV = () => {
+    const head="INVENTORY CODE,INVENTORY ITEM,DEPARTMENT,BRAND NAME,TYPE,MEASUREMENT,CURRENT BALANCE,REORDER LEVEL,STATUS";
+    const esc=v=>{v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const lines=data.items.map(i=>[i.code,i.name,i.dept,i.brand,i.type,i.unit,i.balance,i.reorder,statusOf(i)].map(esc).join(","));
+    setExportModal({title:"Stock CSV",filename:"coco-sweets-inventory-"+todayStr()+".csv",text:head+"\n"+lines.join("\n")});
+    persist(withAudit(data,"Exported CSV",`${data.items.length} items`));
+  };
+
+  const exportBackup = () => {
+    const payload={app:"coco-sweets-inventory",version:1,exportedAt:nowStamp(),exportedBy:user.name,summary:{items:data.items.length,movements:data.log.length,auditEntries:data.audit.length,staff:data.staff.length},data};
+    setExportModal({title:"Full backup",filename:"coco-sweets-FULL-backup-"+todayStr()+".json",text:JSON.stringify(payload),summary:payload.summary});
+    persist(withAudit(data,"Downloaded full backup",`${data.items.length} items · ${data.log.length} movements · ${data.audit.length} audit entries`));
+  };
+
+  const restoreBackup = (text) => {
+    try {
+      const payload=JSON.parse(text);
+      const d=payload&&payload.app==="coco-sweets-inventory"&&payload.data?payload.data:null;
+      if(!d||!Array.isArray(d.items)) return flash("Not a valid Coco Sweets backup","err");
+      const restored=migrate(d);
+      const s=payload.summary||{items:restored.items.length,movements:restored.log.length,auditEntries:(restored.audit||[]).length,staff:restored.staff.length};
+      persist(withAudit(restored,"Restored from backup",`Backup of ${payload.exportedAt||"?"} · ${s.items} items · ${s.movements} movements · ${s.auditEntries} audit entries`));
+      flash(`Restored: ${fmt(s.items)} items · ${fmt(s.movements)} movements · ${fmt(s.auditEntries)} audit entries`);
+    } catch(e) { flash("Couldn't read that backup — copy the full text","err"); }
+  };
+
+  const bulkDelete = (sel) => {
+    const ids=new Set(sel.map(i=>i.id));
+    let next={...data,items:data.items.filter(i=>!ids.has(i.id))};
+    next=withAudit(next,"Bulk deleted items",`${sel.length} items: ${sel.map(i=>i.name).join(", ")}`);
+    persist(next); flash(`${sel.length} items deleted`);
+  };
+
+  const bulkExport = (sel) => {
+    const head="INVENTORY CODE,INVENTORY ITEM,DEPARTMENT,BRAND NAME,TYPE,MEASUREMENT,CURRENT BALANCE,REORDER LEVEL,STATUS";
+    const esc=v=>{v=String(v??"");return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+    const lines=sel.map(i=>[i.code,i.name,i.dept,i.brand,i.type,i.unit,i.balance,i.reorder,statusOf(i)].map(esc).join(","));
+    setExportModal({title:`Export — ${sel.length} items`,filename:"coco-sweets-selection-"+todayStr()+".csv",text:head+"\n"+lines.join("\n")});
+    persist(withAudit(data,"Bulk exported CSV",`${sel.length} items`));
+  };
+
+  const emergencyReset = async () => {
+    // load current shared data fresh so we don't overwrite anything
+    let current = data;
+    try {
+      const res = await window.storage.get("coco-inventory-v2", true);
+      if (res && res.value) current = migrate(JSON.parse(res.value));
+    } catch(e) {}
+    const resetStaff = current.staff.map(s => s.role === "admin" ? {...s, pin:"0000"} : s);
+    const next = {
+      ...current,
+      staff: resetStaff,
+      audit: [{id:uid(), ts:nowStamp(), user:"System", action:"Emergency PIN reset", details:"All admin PINs reset to 0000 from login screen"}, ...(current.audit||[])],
+    };
+    await window.storage.set("coco-inventory-v2", JSON.stringify(next), true);
+    setData(next);
+  };
+
+  const updateStaff = (nextStaff, action, details) => persist(withAudit({...data,staff:nextStaff},action,details));
+
+  if(!data) return (
+    <div style={{background:CREAM,minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12,fontFamily:"'DM Sans',sans-serif",color:BERRY}}>
+      <RefreshCw size={28} style={{animation:"spin 1s linear infinite"}}/>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <span style={{fontSize:15,fontWeight:600}}>Loading inventory…</span>
+    </div>
+  );
+
+  return (
+    <div style={{background:CREAM,minHeight:"100vh",fontFamily:"'DM Sans',system-ui,sans-serif",color:CHOC,paddingBottom:user?88:0}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap');
+        *{box-sizing:border-box;}
+        input,select,textarea{font-family:'DM Sans',sans-serif;font-size:15px;}
+        input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid ${PINK};outline-offset:2px;}
+        .irow{transition:background .1s;}
+        .irow:hover{background:#fff8f1!important;}
+        button{transition:opacity .1s,transform .1s;}
+        button:active{opacity:.85;transform:scale(.98);}
+        @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+        ::-webkit-scrollbar{width:4px;height:4px;}
+        ::-webkit-scrollbar-track{background:transparent;}
+        ::-webkit-scrollbar-thumb{background:${CREAM_DARK};border-radius:4px;}
+      `}</style>
+
+      {!user ? <LoginScreen staff={data.staff} onSignIn={signIn} onEmergencyReset={emergencyReset} killSwitch={data.killSwitch||false}/> : (
+        <>
+          {/* ── Header ── */}
+          <header style={{background:`linear-gradient(135deg,${BERRY} 0%,#5c0330 100%)`,color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 12px rgba(135,6,70,.3)"}}>
+            <div style={{maxWidth:880,margin:"0 auto",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{background:"rgba(255,255,255,.15)",borderRadius:10,padding:"6px 8px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  <Package size={20} color="#fff"/>
+                </div>
+                <div>
+                  <div style={{fontFamily:"'Patrick Hand',cursive",fontSize:24,lineHeight:1}}>Coco Sweets</div>
+                  <div style={{fontSize:10,letterSpacing:2,textTransform:"uppercase",opacity:.8}}>Inventory · {user.name}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                {reorderCount>0&&(
+                  <button onClick={()=>{setTab("stock");setFilter("REORDER");}} style={{background:PINK,border:"none",color:"#fff",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                    <AlertTriangle size={12}/>{reorderCount} reorder
+                  </button>
+                )}
+                <div style={{textAlign:"right"}}>
+                  <div style={{fontSize:12,opacity:.75}}>{fmt(items.length)} items</div>
+                  {lastSync&&<div style={{fontSize:10,opacity:.5,display:"flex",alignItems:"center",gap:3}}><RefreshCw size={9}/>synced {lastSync}</div>}
+                  {isAdmin&&<div style={{fontSize:10,opacity:.6,letterSpacing:1}}>ADMIN</div>}
+                </div>
+              </div>
+            </div>
+          </header>
+
+          {/* ── Main content ── */}
+          <main style={{maxWidth:880,margin:"0 auto",padding:"16px 12px"}}>
+            {tab==="stock"&&<StockView {...{visible,search,setSearch,filter,setFilter,setOpenItem,setShowAdd,isAdmin}} onBulkDelete={bulkDelete} onBulkExport={bulkExport}/>}
+            {tab==="log"&&<LogView log={data.log} audit={data.audit} isAdmin={isAdmin} user={user} onDeletePosting={deletePosting}/>}
+            {tab==="more"&&<MoreView staff={data.staff} updateStaff={updateStaff} isAdmin={isAdmin} user={user} importCSV={importCSV} exportCSV={exportCSV} exportBackup={exportBackup} restoreBackup={restoreBackup} signOut={signOut} itemCount={items.length} logCount={data.log.length} killSwitch={data.killSwitch||false} toggleKillSwitch={toggleKillSwitch}/>}
+          </main>
+
+          {/* ── Bottom nav ── */}
+          <nav style={{position:"fixed",bottom:0,left:0,right:0,background:"#fff",borderTop:`1px solid ${CREAM_DARK}`,display:"flex",zIndex:20,paddingBottom:"env(safe-area-inset-bottom)"}}>
+            {[
+              ["stock","Stock",<Package size={20}/>,<Package size={20} fill={BERRY}/>],
+              ["log","Activity",<Activity size={20}/>,<Activity size={20}/>],
+              ["more","More",<Settings size={20}/>,<Settings size={20}/>],
+            ].map(([k,label,icon,activeIcon])=>(
+              <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"10px 0 13px",border:"none",background:"none",cursor:"pointer",color:tab===k?BERRY:"#9a8576",fontWeight:tab===k?700:500,fontSize:11,letterSpacing:.5,display:"flex",flexDirection:"column",alignItems:"center",gap:3,borderTop:tab===k?`2.5px solid ${BERRY}`:"2.5px solid transparent"}}>
+                {tab===k?activeIcon:icon}
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {openItem&&<ItemModal item={items.find(i=>i.id===openItem.id)||openItem} staff={data.staff} user={user} isAdmin={isAdmin} onClose={()=>setOpenItem(null)} onMove={addMovement} onSave={saveItem} onDelete={deleteItem} log={data.log}/>}
+          {showAdd&&<ItemForm onClose={()=>setShowAdd(false)} onSave={f=>saveItem(f,null)} codePreview={f=>genCode(f,data.items)}/>}
+          {exportModal&&<ExportModal {...exportModal} onClose={()=>setExportModal(null)} flash={flash}/>}
+        </>
+      )}
+
+      {/* ── Toast ── */}
+      {toast.msg&&(
+        <div style={{position:"fixed",bottom:72,left:"50%",transform:"translateX(-50%)",background:toast.type==="err"?RED:CHOC,color:"#fff",padding:"11px 18px",borderRadius:99,fontSize:14,fontWeight:600,zIndex:60,maxWidth:"90vw",display:"flex",alignItems:"center",gap:8,boxShadow:"0 4px 16px rgba(0,0,0,.25)"}}>
+          {toast.type==="err"?<AlertCircle size={15}/>:<Check size={15}/>}
+          {toast.msg}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Login ───────────────────────────────────────────────────
+function LoginScreen({staff,onSignIn,onEmergencyReset,killSwitch}) {
+  const [name,setName]=useState(staff[0]?staff[0].name:"");
+  const [pin,setPin]=useState("");
+  const [err,setErr]=useState("");
+  const [showPin,setShowPin]=useState(false);
+  const [loading,setLoading]=useState(false);
+  const [tapCount,setTapCount]=useState(0);
+  const [showReset,setShowReset]=useState(false);
+  const [resetDone,setResetDone]=useState(false);
+  const tapRef=useRef(0);
+  const tapTimer=useRef(null);
+
+  const handleLogoTap=()=>{
+    tapRef.current+=1;
+    setTapCount(tapRef.current); // for UI display only
+    clearTimeout(tapTimer.current);
+    if(tapRef.current>=7){ setShowReset(true); tapRef.current=0; setTapCount(0); return; }
+    tapTimer.current=setTimeout(()=>{ tapRef.current=0; setTapCount(0); },2500);
+  };
+
+  const doReset=async()=>{
+    await onEmergencyReset();
+    setResetDone(true);
+    setShowReset(false);
+  };
+
+  const submit=async()=>{
+    setErr("");setLoading(true);
+    const ok=await onSignIn(name,pin.trim());
+    setLoading(false);
+    if(!ok){setErr("Wrong PIN. Check with your admin.");setPin("");}
+  };
+  return (
+    <div style={{minHeight:"100vh",background:"#2A1610",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:16,position:"relative",overflow:"hidden"}}>
+      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}} @import url('https://fonts.googleapis.com/css2?family=Patrick+Hand&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap');`}</style>
+      {/* bg illustration */}
+      <svg width="100%" viewBox="0 0 680 420" style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",opacity:.15,pointerEvents:"none"}} preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <rect width="680" height="420" fill="#3B2418"/><ellipse cx="130" cy="288" rx="62" ry="12" fill="#870646"/><rect x="68" y="248" width="124" height="42" rx="4" fill="#870646"/><ellipse cx="130" cy="248" rx="62" ry="10" fill="#9a0750"/><ellipse cx="130" cy="246" rx="44" ry="8" fill="#FBF4EC"/><rect x="86" y="210" width="88" height="38" rx="4" fill="#FBF4EC"/><ellipse cx="130" cy="208" rx="28" ry="6" fill="#870646"/><rect x="102" y="182" width="56" height="28" rx="4" fill="#870646"/><path d="M86 220 Q90 228 88 236" fill="none" stroke="#F909A8" stroke-width="3" stroke-linecap="round"/><path d="M104 214 Q108 224 106 233" fill="none" stroke="#F909A8" stroke-width="3" stroke-linecap="round"/><path d="M152 215 Q156 225 154 234" fill="none" stroke="#F909A8" stroke-width="3" stroke-linecap="round"/><rect x="127" y="163" width="6" height="18" rx="2" fill="#FBF4EC"/><ellipse cx="560" cy="220" rx="46" ry="18" fill="#FAC775"/><ellipse cx="560" cy="220" rx="18" ry="7" fill="#3B2418"/><path d="M520 218 Q530 208 545 210 Q565 207 592 215 Q600 218 598 222 Q580 230 545 228 Q530 230 520 225 Z" fill="#870646"/><ellipse cx="548" cy="256" rx="42" ry="16" fill="#FBF4EC"/><ellipse cx="548" cy="256" rx="16" ry="6" fill="#3B2418"/><path d="M312 345 Q308 310 320 308 L344 308 Q356 310 352 345 Z" fill="#870646"/><ellipse cx="332" cy="308" rx="20" ry="8" fill="#FBF4EC"/><ellipse cx="332" cy="302" rx="15" ry="7" fill="#F909A8"/><ellipse cx="332" cy="297" rx="10" ry="6" fill="#FBF4EC"/><rect x="530" y="295" width="80" height="60" rx="6" fill="#870646"/><rect x="564" y="295" width="12" height="60" fill="#F909A8" opacity=".7"/><ellipse cx="558" cy="295" rx="12" ry="8" fill="#F909A8" transform="rotate(-20,558,295)"/><ellipse cx="582" cy="295" rx="12" ry="8" fill="#F909A8" transform="rotate(20,582,295)"/>
+      </svg>
+      {/* card */}
+      <div style={{width:"100%",maxWidth:380,background:"rgba(255,255,255,.97)",borderRadius:22,border:"1px solid #F1E4D4",padding:"36px 26px 32px",textAlign:"center",position:"relative",zIndex:2,animation:"fadeIn .4s ease"}}>
+        <div onClick={handleLogoTap} style={{width:52,height:52,background:`linear-gradient(135deg,${BERRY},#5c0330)`,borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",cursor:"pointer",userSelect:"none"}}>
+          <Package size={26} color="#fff"/>
+        </div>
+        <div style={{fontFamily:"'Patrick Hand',cursive",fontSize:36,color:BERRY,lineHeight:1}}>Coco Sweets</div>
+        <div style={{fontSize:11,letterSpacing:3,textTransform:"uppercase",color:"#9a8576",marginBottom:8}}>Inventory Manager</div>
+        {tapCount>=3&&tapCount<7&&<div style={{fontSize:11,color:PINK,marginBottom:4}}>{7-tapCount} more tap{7-tapCount!==1?"s":""} for emergency reset…</div>}
+        {killSwitch ? (
+          <div style={{background:"#fff3f3",border:`1.5px solid ${RED}`,borderRadius:14,padding:"18px 16px",margin:"8px 0 16px",textAlign:"center"}}>
+            <div style={{width:48,height:48,background:RED,borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 10px"}}>
+              <Lock size={24} color="#fff"/>
+            </div>
+            <div style={{fontWeight:700,color:RED,fontSize:16,marginBottom:6}}>System temporarily unavailable</div>
+            <div style={{fontSize:13,color:"#6f5b4d",lineHeight:1.5}}>Access has been suspended by the administrator. Please check with your manager.</div>
+          </div>
+        ) : (
+          <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:GREEN,background:GREEN_BG,borderRadius:99,padding:"4px 12px",marginBottom:24}}>
+            <span style={{width:7,height:7,background:GREEN,borderRadius:"50%",display:"inline-block",animation:"pulse 2s infinite"}}/>System live
+          </div>
+        )}
+
+        {/* emergency reset panel */}
+        {showReset&&!resetDone&&(
+          <div style={{background:"#fff8f1",border:`1.5px solid ${PINK}`,borderRadius:14,padding:"14px 16px",marginBottom:16,textAlign:"left"}}>
+            <div style={{fontWeight:700,color:BERRY,marginBottom:6,display:"flex",alignItems:"center",gap:6}}><AlertTriangle size={15} color={PINK}/>Emergency admin reset</div>
+            <p style={{fontSize:13,color:"#6f5b4d",marginBottom:12,lineHeight:1.5}}>This will reset the PIN for every admin account to <b>0000</b>. Sign in immediately after and change it in More → Staff & PINs.</p>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={doReset} style={{...BP,fontSize:13,padding:"8px 14px",background:BERRY}}>
+                <Check size={13}/>Reset all admin PINs to 0000
+              </button>
+              <button onClick={()=>setShowReset(false)} style={{...BG,fontSize:13,padding:"8px 12px"}}><X size={13}/></button>
+            </div>
+          </div>
+        )}
+        {resetDone&&(
+          <div style={{background:GREEN_BG,border:`1.5px solid ${GREEN}`,borderRadius:14,padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:8,color:GREEN,fontWeight:600,fontSize:14}}>
+            <CheckCircle size={16}/>Admin PINs reset to 0000 — sign in now and change it
+          </div>
+        )}
+        {!killSwitch && (
+          <>
+            <Field label="Who's working?" icon={<User size={14}/>}>
+              <select value={name} onChange={e=>{setName(e.target.value);setErr("");}} style={IS}>
+                {staff.map(s=><option key={s.name}>{s.name}</option>)}
+              </select>
+            </Field>
+            <Field label="PIN" icon={<Lock size={14}/>}>
+              <div style={{position:"relative"}}>
+                <input type={showPin?"text":"password"} inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="••••" style={{...IS,textAlign:"center",letterSpacing:8,fontSize:20,paddingRight:44}}/>
+                <button onClick={()=>setShowPin(v=>!v)} style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9a8576",display:"flex",padding:4}}>
+                  {showPin?<EyeOff size={16}/>:<Eye size={16}/>}
+                </button>
+              </div>
+            </Field>
+            {err&&<div style={{color:RED,fontSize:13,marginBottom:10,display:"flex",alignItems:"center",gap:5,justifyContent:"center"}}><AlertCircle size={14}/>{err}</div>}
+            <button onClick={submit} disabled={loading} style={{width:"100%",background:`linear-gradient(135deg,${BERRY},#5c0330)`,color:"#fff",border:"none",borderRadius:13,padding:"14px 0",fontWeight:700,fontSize:16,cursor:loading?"not-allowed":"pointer",marginTop:4,display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:loading?.8:1}}>
+              {loading?<RefreshCw size={17} style={{animation:"spin 1s linear infinite"}}/>:<Star size={17}/>}
+              {loading?"Signing in…":"Sign in"}
+            </button>
+            <div style={{fontSize:12,color:"#9a8576",marginTop:14,lineHeight:1.6,display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+              <Shield size={12}/> Every action is recorded under your name.
+            </div>
+          </>
+        )}
+      </div>
+      <div style={{marginTop:18,fontSize:11,color:"rgba(251,244,236,.3)",position:"relative",zIndex:2}}>Coco Sweets · Internal use only</div>
+    </div>
+  );
+}
+
+// ─── Stock view ──────────────────────────────────────────────
+function StockView({visible,search,setSearch,filter,setFilter,setOpenItem,setShowAdd,onBulkDelete,onBulkExport,isAdmin}) {
+  const [selected,setSelected]=useState(new Set());
+  const chips=[["ALL","All",null],["REORDER","⚠ Reorder",<AlertTriangle size={11}/>],["RAW MATERIAL","Raw",<Layers size={11}/>],["WIP","WIP",<RefreshCw size={11}/>],["ASSET","Assets",<Box size={11}/>]];
+  const allIds=visible.map(i=>i.id);
+  const allSel=allIds.length>0&&allIds.every(id=>selected.has(id));
+  const toggle=id=>setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
+  const toggleAll=()=>setSelected(allSel?new Set():new Set(allIds));
+  const clearSel=()=>setSelected(new Set());
+  const selCount=selected.size;
+  const selItems=visible.filter(i=>selected.has(i.id));
+
+  const [confirmBulkDel,setConfirmBulkDel]=useState(false);
+
+  return (
+    <div>
+      {/* search + add */}
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        <div style={{flex:1,position:"relative"}}>
+          <Search size={16} style={{position:"absolute",left:13,top:"50%",transform:"translateY(-50%)",color:"#9a8576",pointerEvents:"none"}}/>
+          <input value={search} onChange={e=>{setSearch(e.target.value);clearSel();}} placeholder="Search name, code or brand…" style={{...IS,paddingLeft:38}}/>
+          {search&&<button onClick={()=>{setSearch("");clearSel();}} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9a8576",display:"flex",padding:4}}><X size={15}/></button>}
+        </div>
+        <button onClick={()=>setShowAdd(true)} style={{...BP,whiteSpace:"nowrap",padding:"0 18px",borderRadius:12}}>
+          <Plus size={17}/> Add
+        </button>
+      </div>
+
+      {/* filter chips */}
+      <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:10,marginBottom:6}}>
+        {chips.map(([k,label,icon])=>(
+          <button key={k} onClick={()=>{setFilter(k);clearSel();}} style={{whiteSpace:"nowrap",padding:"6px 14px",borderRadius:99,fontSize:12,fontWeight:600,cursor:"pointer",border:`1.5px solid ${filter===k?BERRY:CREAM_DARK}`,background:filter===k?BERRY:"#fff",color:filter===k?"#fff":CHOC,display:"flex",alignItems:"center",gap:5}}>
+            {icon}{label}
+          </button>
+        ))}
+      </div>
+
+      {visible.length===0 ? (
+        <div style={{textAlign:"center",padding:"64px 16px",color:"#9a8576"}}>
+          <Package size={40} style={{opacity:.25,marginBottom:12}}/>
+          <div style={{fontWeight:600,marginBottom:4}}>No items found</div>
+          <div style={{fontSize:13}}>Try a different search, or add an item using the button above.</div>
+        </div>
+      ) : (
+        <>
+          {/* select-all row — inline action bar */}
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",background:"#fff",borderRadius:"14px 14px 0 0",border:`1px solid ${CREAM_DARK}`,borderBottom:`1px solid ${CREAM}`,flexWrap:"wrap"}}>
+            <input type="checkbox" checked={allSel} onChange={toggleAll} style={{width:16,height:16,accentColor:BERRY,cursor:"pointer",flexShrink:0}}/>
+            <span style={{fontSize:13,color:"#9a8576",flex:1}}>
+              {selCount>0?<b style={{color:BERRY}}>{selCount} of {visible.length} selected</b>:`${visible.length} items — tick boxes to select`}
+            </span>
+            {selCount>0&&(
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                {isAdmin&&!confirmBulkDel&&(
+                  <button onClick={()=>{onBulkExport(selItems);clearSel();}} style={{...BP,padding:"5px 12px",fontSize:12,borderRadius:8}}>
+                    <Download size={12}/>Export
+                  </button>
+                )}
+                {isAdmin&&!confirmBulkDel&&(
+                  <button onClick={()=>setConfirmBulkDel(true)} style={{...BP,background:RED,padding:"5px 12px",fontSize:12,borderRadius:8}}>
+                    <Trash2 size={12}/>Delete
+                  </button>
+                )}
+                {isAdmin&&confirmBulkDel&&(
+                  <>
+                    <button onClick={()=>{onBulkDelete(selItems);clearSel();setConfirmBulkDel(false);}} style={{...BP,background:RED,padding:"5px 12px",fontSize:12,borderRadius:8}}>
+                      <AlertTriangle size={12}/>Tap to confirm
+                    </button>
+                    <button onClick={()=>setConfirmBulkDel(false)} style={{background:"none",border:`1px solid ${CREAM_DARK}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"#9a8576"}}>Cancel</button>
+                  </>
+                )}
+                <button onClick={()=>{clearSel();setConfirmBulkDel(false);}} style={{background:"none",border:`1px solid ${CREAM_DARK}`,borderRadius:8,padding:"5px 10px",cursor:"pointer",fontSize:12,color:"#9a8576",display:"flex",alignItems:"center",gap:3}}>
+                  <X size={12}/>Clear
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* list */}
+          <div style={{background:"#fff",borderRadius:"0 0 14px 14px",border:`1px solid ${CREAM_DARK}`,borderTop:"none",overflow:"hidden"}}>
+            {visible.map(i=>{
+              const st=statusOf(i);
+              const isSel=selected.has(i.id);
+              return (
+                <div key={i.id} className="irow" style={{display:"flex",alignItems:"center",gap:10,padding:"13px 14px",borderBottom:`1px solid ${CREAM}`,background:isSel?"#fff8f1":"#fff"}}>
+                  <input type="checkbox" checked={isSel} onChange={()=>toggle(i.id)} onClick={e=>e.stopPropagation()} style={{width:16,height:16,accentColor:BERRY,cursor:"pointer",flexShrink:0}}/>
+                  <button onClick={()=>setOpenItem(i)} style={{display:"flex",flex:1,textAlign:"left",alignItems:"center",gap:12,border:"none",background:"none",cursor:"pointer",padding:0,minWidth:0}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:st==="REORDER"?"#FDE3F1":CREAM,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      {i.type==="RAW MATERIAL"?<Layers size={16} color={st==="REORDER"?PINK:BERRY}/>:i.type==="WIP"?<RefreshCw size={16} color={BERRY}/>:i.type==="ASSET"?<Box size={16} color={BERRY}/>:<Package size={16} color={BERRY}/>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:14.5,color:CHOC,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{i.name}</div>
+                      <div style={{fontSize:11.5,color:"#9a8576",marginTop:1}}>{i.code||"no code"}{i.brand?" · "+i.brand:""}{i.dept?" · "+i.dept:""}</div>
+                    </div>
+                    <div style={{textAlign:"right",flexShrink:0}}>
+                      <div style={{fontWeight:700,fontSize:15,color:st==="REORDER"?PINK:CHOC}}>{fmt(i.balance)}<span style={{fontSize:11,fontWeight:500,color:"#9a8576"}}> {i.unit}</span></div>
+                      <span style={{fontSize:10,fontWeight:700,letterSpacing:.5,padding:"2px 8px",borderRadius:99,background:st==="REORDER"?"#FDE3F1":GREEN_BG,color:st==="REORDER"?PINK:GREEN,display:"inline-flex",alignItems:"center",gap:3,marginTop:2}}>
+                        {st==="REORDER"?<AlertTriangle size={9}/>:<CheckCircle size={9}/>}{st}
+                      </span>
+                    </div>
+                    <ChevronRight size={16} color="#d4b8ad"/>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* mobile floating bulk bar — shows on smaller screens as backup */}
+      {selCount>0&&<BulkBar count={selCount} isAdmin={isAdmin} onExport={()=>{onBulkExport(selItems);clearSel();}} onDelete={()=>{onBulkDelete(selItems);clearSel();}} onClear={()=>{clearSel();setConfirmBulkDel(false);}}/>}
+    </div>
+  );
+}
+
+function BulkBar({count,isAdmin,onExport,onDelete,onClear}) {
+  const [confirmDel,setConfirmDel]=useState(false);
+  return (
+    <div style={{position:"fixed",bottom:76,left:"50%",transform:"translateX(-50%)",background:CHOC,borderRadius:16,padding:"11px 14px",display:"flex",alignItems:"center",gap:8,zIndex:30,boxShadow:"0 6px 24px rgba(0,0,0,.35)",maxWidth:"calc(100vw - 24px)",flexWrap:"wrap"}}>
+      <span style={{color:"#fff",fontWeight:700,fontSize:14,display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}><CheckCircle size={14}/>{count} selected</span>
+      {isAdmin&&!confirmDel&&<button onClick={onExport} style={{...BP,background:"rgba(255,255,255,.15)",padding:"6px 12px",fontSize:13,borderRadius:9}}><Download size={13}/>Export</button>}
+      {isAdmin&&!confirmDel&&<button onClick={()=>setConfirmDel(true)} style={{...BP,background:RED,padding:"6px 12px",fontSize:13,borderRadius:9}}><Trash2 size={13}/>Delete</button>}
+      {isAdmin&&confirmDel&&<>
+        <button onClick={()=>{onDelete();setConfirmDel(false);}} style={{...BP,background:RED,padding:"6px 12px",fontSize:13,borderRadius:9}}><AlertTriangle size={13}/>Confirm delete</button>
+        <button onClick={()=>setConfirmDel(false)} style={{background:"none",color:"rgba(255,255,255,.7)",border:"1px solid rgba(255,255,255,.2)",borderRadius:9,padding:"6px 10px",cursor:"pointer",fontSize:13}}>Cancel</button>
+      </>}
+      <button onClick={onClear} style={{background:"none",color:"rgba(255,255,255,.5)",border:"none",cursor:"pointer",marginLeft:"auto",display:"flex",padding:4}}><X size={16}/></button>
+    </div>
+  );
+}
+
+// ─── Item modal ──────────────────────────────────────────────
+function ItemModal({item,staff,user,isAdmin,onClose,onMove,onSave,onDelete,log}) {
+  const [mode,setMode]=useState("move");
+  const [dir,setDir]=useState("out");
+  const [qty,setQty]=useState("");
+  const [who,setWho]=useState(user.name);
+  const [activity,setActivity]=useState("Production");
+  const [date,setDate]=useState(todayStr());
+  const [notes,setNotes]=useState("");
+  const history=log.filter(l=>l.itemId===item.id).slice(0,6);
+  const st=statusOf(item);
+  const pct=item.reorder>0?Math.min(100,Math.round((item.balance/item.reorder)*100)):null;
+
+  return (
+    <Modal onClose={onClose} title={item.name}>
+      {/* meta row */}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:6}}>
+        <div style={{fontSize:12,color:"#9a8576",display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+          {item.code&&<><Tag size={11}/>{item.code}</>}
+          {item.brand&&<><span style={{opacity:.4}}>·</span>{item.brand}</>}
+          {item.dept&&<><span style={{opacity:.4}}>·</span><Briefcase size={11}/>{item.dept}</>}
+        </div>
+        <span style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:99,background:st==="REORDER"?"#FDE3F1":GREEN_BG,color:st==="REORDER"?PINK:GREEN,display:"inline-flex",alignItems:"center",gap:4}}>
+          {st==="REORDER"?<AlertTriangle size={10}/>:<CheckCircle size={10}/>}{st}
+        </span>
+      </div>
+
+      {/* balance card */}
+      <div style={{background:`linear-gradient(135deg,${BERRY},#5c0330)`,borderRadius:14,padding:"16px 18px",marginBottom:14,color:"#fff"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div>
+            <div style={{fontSize:11,opacity:.75,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Current balance</div>
+            <div style={{fontSize:30,fontWeight:700,lineHeight:1}}>{fmt(item.balance)}<span style={{fontSize:14,fontWeight:500,opacity:.8}}> {item.unit}</span></div>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,opacity:.75,textTransform:"uppercase",letterSpacing:1,marginBottom:4}}>Reorder level</div>
+            <div style={{fontSize:22,fontWeight:700}}>{fmt(item.reorder)}</div>
+          </div>
+        </div>
+        {pct!==null&&(
+          <div style={{marginTop:12}}>
+            <div style={{height:5,background:"rgba(255,255,255,.2)",borderRadius:99,overflow:"hidden"}}>
+              <div style={{width:pct+"%",height:"100%",background:pct<=100?"#ff6b9d":"#7dfa9a",borderRadius:99,transition:"width .4s"}}/>
+            </div>
+            <div style={{fontSize:11,opacity:.7,marginTop:4}}>{pct}% of reorder level</div>
+          </div>
+        )}
+      </div>
+
+      {/* mode tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:14}}>
+        <TabBtn active={mode==="move"} onClick={()=>setMode("move")}><ArrowDownCircle size={14}/>Record movement</TabBtn>
+        <TabBtn active={mode==="edit"} onClick={()=>setMode("edit")}><Pencil size={14}/>Edit item</TabBtn>
+      </div>
+
+      {mode==="move" ? (
+        <div>
+          {/* in/out toggle */}
+          <div style={{display:"flex",gap:8,marginBottom:12}}>
+            <BigToggle active={dir==="out"} color={PINK} onClick={()=>setDir("out")}><ArrowDownCircle size={16}/>Stock out</BigToggle>
+            <BigToggle active={dir==="in"} color={GREEN} onClick={()=>setDir("in")}><ArrowUpCircle size={16}/>Stock in</BigToggle>
+          </div>
+
+          <Field label={`Quantity${item.unit?" ("+item.unit+")":""}`} icon={<Tag size={13}/>}>
+            <input type="number" inputMode="decimal" min="0" value={qty} onChange={e=>setQty(e.target.value)} placeholder="0" style={IS} autoFocus/>
+          </Field>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+            <Field label="Staff" icon={<User size={13}/>}>
+              <select value={who} onChange={e=>setWho(e.target.value)} style={IS}>
+                {staff.map(s=><option key={s.name}>{s.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Activity" icon={<Tag size={13}/>}>
+              <select value={activity} onChange={e=>setActivity(e.target.value)} style={IS}>
+                {ACTIVITY_TYPES.map(a=><option key={a}>{a}</option>)}
+              </select>
+            </Field>
+            <Field label="Date" icon={<Clock size={13}/>}>
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={IS}/>
+            </Field>
+            <Field label="Notes" icon={<FileText size={13}/>}>
+              <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Optional note…" style={IS}/>
+            </Field>
+          </div>
+          <div style={{fontSize:12,color:"#9a8576",marginBottom:10,display:"flex",alignItems:"center",gap:4}}><Shield size={11}/>Recorded by {user.name}</div>
+          <button onClick={()=>onMove(item,{direction:dir,qty,staff:who,activity,date,notes})} style={{width:"100%",background:dir==="in"?`linear-gradient(135deg,${GREEN},#1b5e20)`:`linear-gradient(135deg,${PINK},${BERRY})`,color:"#fff",border:"none",borderRadius:13,padding:"14px 0",fontWeight:700,fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+            {dir==="in"?<ArrowUpCircle size={17}/>:<ArrowDownCircle size={17}/>}
+            Save {dir==="in"?"stock in":"stock out"}
+          </button>
+
+          {/* history */}
+          {history.length>0&&(
+            <div style={{marginTop:18}}>
+              <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:1,color:"#9a8576",marginBottom:8,display:"flex",alignItems:"center",gap:5}}><Clock size={11}/>Recent activity</div>
+              {history.map(h=>(
+                <div key={h.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,padding:"7px 0",borderBottom:`1px solid ${CREAM}`,alignItems:"center"}}>
+                  <div>
+                    <span style={{color:CHOC,fontWeight:500}}>{h.date}</span>
+                    <span style={{color:"#9a8576"}}> · {(h.staff||"").split(" ")[0]} · {h.activity}</span>
+                  </div>
+                  <b style={{color:h.direction==="in"?GREEN:PINK}}>{h.direction==="in"?"+":"−"}{fmt(h.qty)}</b>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <ItemForm initial={item} embedded onSave={f=>onSave(f,item.id)} onDelete={isAdmin?()=>onDelete(item.id):null}/>
+      )}
+    </Modal>
+  );
+}
+
+// ─── Item form ───────────────────────────────────────────────
+function ItemForm({initial,onClose,onSave,onDelete,embedded,codePreview}) {
+  const [f,setF]=useState({code:(initial&&initial.code)||"",name:(initial&&initial.name)||"",dept:(initial&&initial.dept)||"",brand:(initial&&initial.brand)||"",type:(initial&&initial.type)||"",unit:(initial&&initial.unit)||"",balance:initial!=null?initial.balance:"",reorder:initial!=null?initial.reorder:0});
+  const [confirmDel,setConfirmDel]=useState(false);
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const preview=initial?initial.code:f.name.trim()&&codePreview?codePreview(f):"";
+  const body=(
+    <div>
+      <Field label="Item name *" icon={<Package size={13}/>}><input value={f.name} onChange={set("name")} placeholder="e.g. 12X12 SOFT PAPER GOLD" style={IS}/></Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+        <Field label="Brand" icon={<Tag size={13}/>}><input value={f.brand} onChange={set("brand")} style={IS}/></Field>
+        <Field label="Department" icon={<Briefcase size={13}/>}><input value={f.dept} onChange={set("dept")} placeholder="e.g. Bakery" style={IS}/></Field>
+        <Field label="Type" icon={<Layers size={13}/>}>
+          <select value={f.type} onChange={set("type")} style={IS}>
+            {ITEM_TYPES.map(t=><option key={t} value={t}>{t||"General"}</option>)}
+          </select>
+        </Field>
+        <Field label="Unit" icon={<Minus size={13}/>}><input value={f.unit} onChange={set("unit")} placeholder="pcs / grams / roll" style={IS}/></Field>
+        <Field label="Reorder level" icon={<AlertTriangle size={13}/>}><input type="number" inputMode="decimal" value={f.reorder} onChange={set("reorder")} style={IS}/></Field>
+        {!initial&&<Field label="Opening stock" icon={<BarChart size={13}/>}><input type="number" inputMode="decimal" value={f.balance} onChange={set("balance")} placeholder="0" style={IS}/></Field>}
+      </div>
+      {/* code preview */}
+      <div style={{background:CREAM,borderRadius:10,padding:"10px 14px",marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center",border:`1px dashed ${CREAM_DARK}`}}>
+        <span style={{fontSize:12,fontWeight:600,color:"#6f5b4d",display:"flex",alignItems:"center",gap:5}}><Tag size={12}/>Auto-generated code</span>
+        <b style={{fontSize:14,color:BERRY,fontFamily:"monospace"}}>{preview||"—"}</b>
+      </div>
+      <button onClick={()=>onSave(f)} style={{...BP,width:"100%",justifyContent:"center",borderRadius:13,padding:"13px 0",fontSize:15}}>
+        <Save size={16}/>{initial?"Save changes":"Add item"}
+      </button>
+      {initial&&onDelete&&!confirmDel&&(
+        <button onClick={()=>setConfirmDel(true)} style={{...BG,width:"100%",justifyContent:"center",marginTop:8,padding:"11px 0",color:RED,borderColor:"#e8c9c6"}}>
+          <Trash2 size={15}/>Remove item
+        </button>
+      )}
+      {initial&&onDelete&&confirmDel&&(
+        <div style={{marginTop:8}}>
+          <button onClick={()=>onDelete()} style={{...BD,width:"100%",justifyContent:"center",padding:"11px 0",marginBottom:6}}>
+            <AlertTriangle size={15}/>Tap again to confirm removal
+          </button>
+          <div style={{textAlign:"center",fontSize:12,color:"#9a8576"}}>Past movements stay in the activity log. <button onClick={()=>setConfirmDel(false)} style={{background:"none",border:"none",color:BERRY,cursor:"pointer",fontWeight:700,fontSize:12}}>Cancel</button></div>
+        </div>
+      )}
+    </div>
+  );
+  if(embedded) return body;
+  return <Modal onClose={onClose} title="Add a new item">{body}</Modal>;
+}
+
+// ─── Log view ────────────────────────────────────────────────
+function LogView({log,audit,isAdmin,user,onDeletePosting}) {
+  const [view,setView]=useState("moves");
+  const [q,setQ]=useState("");
+  const [confirmId,setConfirmId]=useState(null);
+  const ql=q.toLowerCase();
+  const moves=log.filter(l=>!q||(l.itemName||"").toLowerCase().includes(ql)||(l.staff||"").toLowerCase().includes(ql)||(l.performedBy||"").toLowerCase().includes(ql)).slice(0,200);
+  const trail=audit.filter(a=>!q||(a.user||"").toLowerCase().includes(ql)||(a.action||"").toLowerCase().includes(ql)||(a.details||"").toLowerCase().includes(ql)).slice(0,300);
+  const canDel=l=>isAdmin||l.performedBy===user.name;
+
+  return (
+    <div>
+      <div style={{display:"flex",gap:6,marginBottom:12}}>
+        <TabBtn active={view==="moves"} onClick={()=>setView("moves")}><Activity size={14}/>Movements</TabBtn>
+        {isAdmin&&<TabBtn active={view==="audit"} onClick={()=>setView("audit")}><ClipboardList size={14}/>Audit trail</TabBtn>}
+      </div>
+      <div style={{position:"relative",marginBottom:12}}>
+        <Search size={15} style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#9a8576",pointerEvents:"none"}}/>
+        <input value={q} onChange={e=>setQ(e.target.value)} placeholder={view==="moves"?"Search by item or staff…":"Search by person or action…"} style={{...IS,paddingLeft:36}}/>
+        {q&&<button onClick={()=>setQ("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9a8576",display:"flex"}}><X size={15}/></button>}
+      </div>
+
+      {view==="moves" ? (
+        moves.length===0?<Empty icon={<Activity size={36}/>}>No stock movements yet. Open an item on the Stock tab to record one.</Empty>:(
+          <div style={{background:"#fff",borderRadius:14,border:`1px solid ${CREAM_DARK}`,overflow:"hidden"}}>
+            {moves.map(l=>(
+              <div key={l.id} style={{padding:"12px 14px",borderBottom:`1px solid ${CREAM}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"flex-start"}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{l.itemName}</div>
+                    <div style={{fontSize:12,color:"#9a8576",marginTop:2,display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
+                      <Clock size={10}/>{l.date}
+                      <span style={{opacity:.4}}>·</span><User size={10}/>{l.staff}
+                      <span style={{opacity:.4}}>·</span>
+                      <span style={{display:"inline-flex",alignItems:"center",gap:3}}>{ACTIVITY_ICONS[l.activity]||null}{l.activity}</span>
+                      {l.performedBy&&l.performedBy!==l.staff&&<><span style={{opacity:.4}}>·</span>entered by {l.performedBy}</>}
+                      {l.notes&&<><span style={{opacity:.4}}>·</span>{l.notes}</>}
+                    </div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0}}>
+                    <b style={{color:l.direction==="in"?GREEN:PINK,fontSize:15,display:"flex",alignItems:"center",gap:3}}>
+                      {l.direction==="in"?<ArrowUp size={13}/>:<ArrowDown size={13}/>}
+                      {l.direction==="in"?"+":"−"}{fmt(l.qty)} {l.unit}
+                    </b>
+                    {canDel(l)&&(
+                      <button onClick={()=>confirmId===l.id?(onDeletePosting(l),setConfirmId(null)):setConfirmId(l.id)} style={{background:confirmId===l.id?RED:"none",color:confirmId===l.id?"#fff":RED,border:confirmId===l.id?`none`:`none`,borderRadius:6,padding:confirmId===l.id?"2px 8px":"2px 0",cursor:"pointer",fontSize:11,fontWeight:600,marginTop:3,display:"inline-flex",alignItems:"center",gap:3}}>
+                        {confirmId===l.id?<><AlertTriangle size={10}/>Confirm delete</>:<><Trash2 size={10}/>Delete</>}
+                      </button>
+                    )}
+                    {confirmId===l.id&&<button onClick={()=>setConfirmId(null)} style={{background:"none",border:"none",color:"#9a8576",cursor:"pointer",fontSize:11,marginLeft:6}}>Cancel</button>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : isAdmin ? (
+        trail.length===0?<Empty icon={<ClipboardList size={36}/>}>The audit trail records every sign-in, movement, edit, import and export — with who did it and when.</Empty>:(
+          <div style={{background:"#fff",borderRadius:14,border:`1px solid ${CREAM_DARK}`,overflow:"hidden"}}>
+            {trail.map(a=>(
+              <div key={a.id} style={{padding:"11px 14px",borderBottom:`1px solid ${CREAM}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"center"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7,minWidth:0}}>
+                    <div style={{width:28,height:28,borderRadius:8,background:CREAM,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <User size={13} color={BERRY}/>
+                    </div>
+                    <div style={{minWidth:0}}>
+                      <b style={{fontSize:13.5,display:"flex",alignItems:"center",gap:5}}>{a.user} <span style={{fontWeight:500,color:BERRY,fontSize:12}}>· {a.action}</span></b>
+                      {a.details&&<div style={{fontSize:12,color:"#6f5b4d",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.details}</div>}
+                    </div>
+                  </div>
+                  <span style={{fontSize:11,color:"#9a8576",whiteSpace:"nowrap",flexShrink:0}}>{a.ts}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <Empty icon={<Lock size={36}/>}>The audit trail is only visible to admins.</Empty>
+      )}
+    </div>
+  );
+}
+
+// ─── More view ───────────────────────────────────────────────
+function MoreView({staff,updateStaff,isAdmin,user,importCSV,exportCSV,exportBackup,restoreBackup,signOut,itemCount,logCount,killSwitch,toggleKillSwitch}) {
+  const [csv,setCsv]=useState("");
+  const [newName,setNewName]=useState("");
+  const [newPin,setNewPin]=useState("");
+  const [pinFor,setPinFor]=useState(null);
+  const [pinVal,setPinVal]=useState("");
+  const [pinErr,setPinErr]=useState("");
+  const [removeFor,setRemoveFor]=useState(null);
+  const [confirmRestore,setConfirmRestore]=useState(false);
+  const [restoreText,setRestoreText]=useState("");
+  const [showPin,setShowPin]=useState(false);
+  const fileRef=useRef(null);
+  const restoreRef=useRef(null);
+
+  const savePin=()=>{
+    const p=pinVal.trim();
+    if(!/^\d{4,6}$/.test(p)){setPinErr("PIN must be 4–6 digits");return;}
+    updateStaff(staff.map(s=>s.name===pinFor?{...s,pin:p}:s),"Reset PIN","For "+pinFor);
+    setPinFor(null);setPinVal("");setPinErr("");
+  };
+
+  const pinEditor=(
+    <div style={{background:CREAM,borderRadius:10,padding:"12px 14px",marginTop:10,border:`1px solid ${CREAM_DARK}`}}>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:8,display:"flex",alignItems:"center",gap:5}}><Lock size={13} color={BERRY}/>New PIN for {pinFor}</div>
+      <div style={{position:"relative",marginBottom:pinErr?0:0}}>
+        <input value={pinVal} onChange={e=>{setPinVal(e.target.value);setPinErr("");}} type={showPin?"text":"password"} inputMode="numeric" placeholder="4–6 digits" style={{...IS,paddingRight:40}} autoFocus/>
+        <button onClick={()=>setShowPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9a8576",display:"flex"}}>{showPin?<EyeOff size={15}/>:<Eye size={15}/>}</button>
+      </div>
+      {pinErr&&<div style={{color:RED,fontSize:12,margin:"4px 0",display:"flex",alignItems:"center",gap:4}}><AlertCircle size={12}/>{pinErr}</div>}
+      <div style={{display:"flex",gap:8,marginTop:8}}>
+        <button onClick={savePin} style={{...BP,flex:1,justifyContent:"center"}}><Check size={14}/>Save PIN</button>
+        <button onClick={()=>{setPinFor(null);setPinVal("");setPinErr("");}} style={{...BG,padding:"9px 14px"}}><X size={14}/></button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{display:"grid",gap:14}}>
+      {/* kill switch — admin only */}
+      {isAdmin&&(
+        <Card title="System access" icon={<Lock size={18}/>}>
+          <div style={{background:killSwitch?"#fff3f3":GREEN_BG,borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontWeight:700,fontSize:14,color:killSwitch?RED:GREEN,display:"flex",alignItems:"center",gap:6}}>
+                {killSwitch?<><Lock size={14}/>Access suspended</>:<><CheckCircle size={14}/>Access open</>}
+              </div>
+              <div style={{fontSize:12,color:"#6f5b4d",marginTop:3}}>
+                {killSwitch?"Staff cannot sign in — only you can see this screen":"All staff can sign in normally"}
+              </div>
+            </div>
+            <button onClick={()=>toggleKillSwitch(!killSwitch)} style={{...killSwitch?BP:{...BP,background:RED},padding:"9px 16px",fontSize:13,whiteSpace:"nowrap",flexShrink:0}}>
+              {killSwitch?<><CheckCircle size={14}/>Restore access</>:<><Lock size={14}/>Suspend access</>}
+            </button>
+          </div>
+          <p style={{...PS,marginBottom:0,marginTop:10}}>Suspending access blocks all staff sign-ins immediately — across every device, in real time. You stay signed in. Use this if you need to lock down the app remotely.</p>
+        </Card>
+      )}
+      {/* account */}
+      <Card title="Your account" icon={<User size={18}/>}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"12px 14px",background:CREAM,borderRadius:12}}>
+          <div style={{width:44,height:44,borderRadius:12,background:`linear-gradient(135deg,${BERRY},#5c0330)`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            <span style={{color:"#fff",fontWeight:700,fontSize:18}}>{(user.name||"?")[0]}</span>
+          </div>
+          <div>
+            <div style={{fontWeight:700,fontSize:15}}>{user.name}</div>
+            <div style={{fontSize:12,color:"#9a8576",display:"flex",alignItems:"center",gap:4}}>{isAdmin?<><Shield size={11} color={BERRY}/><span style={{color:BERRY,fontWeight:600}}>Admin</span></>:<><User size={11}/>Staff</>}</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={()=>{setPinFor(user.name);setPinVal("");}} style={{...BG,fontSize:13,padding:"8px 14px"}}><Lock size={13}/>Change PIN</button>
+          <button onClick={signOut} style={{...BG,fontSize:13,padding:"8px 14px"}}><LogOut size={13}/>Sign out</button>
+        </div>
+        {pinFor===user.name&&pinEditor}
+      </Card>
+
+      {/* staff (admin only) */}
+      {isAdmin&&(
+        <Card title="Staff & access" icon={<Shield size={18}/>}>
+          <p style={PS}>Each person signs in with their own PIN. Promote to admin to grant full access.</p>
+          {staff.map(s=>(
+            <div key={s.name} style={{borderBottom:`1px solid ${CREAM}`,paddingBottom:8,marginBottom:8}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:32,height:32,borderRadius:8,background:s.role==="admin"?`linear-gradient(135deg,${BERRY},#5c0330)`:CREAM,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <span style={{color:s.role==="admin"?"#fff":BERRY,fontWeight:700,fontSize:14}}>{(s.name||"?")[0]}</span>
+                  </div>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:14}}>{s.name}</div>
+                    <div style={{fontSize:11,color:"#9a8576",display:"flex",alignItems:"center",gap:3}}>{s.role==="admin"?<><Shield size={9} color={BERRY}/><span style={{color:BERRY}}>Admin</span></>:<><User size={9}/>Staff</>}</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {s.name!==user.name&&(
+                    <button onClick={()=>updateStaff(staff.map(x=>x.name===s.name?{...x,role:x.role==="admin"?"staff":"admin"}:x),s.role==="admin"?"Removed admin role":"Granted admin role",s.name)} style={{background:"none",border:`1px solid ${CREAM_DARK}`,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:12,color:"#6f5b4d",display:"flex",alignItems:"center",gap:3}}>
+                      {s.role==="admin"?<><User size={11}/>Make staff</>:<><Shield size={11}/>Make admin</>}
+                    </button>
+                  )}
+                  <button onClick={()=>{setPinFor(s.name);setPinVal("");setRemoveFor(null);}} style={{background:"none",border:`1px solid ${CREAM_DARK}`,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:12,color:BERRY,display:"flex",alignItems:"center",gap:3}}><Lock size={11}/>PIN</button>
+                  {s.name!==user.name&&(
+                    <button onClick={()=>removeFor===s.name?(updateStaff(staff.filter(x=>x.name!==s.name),"Removed staff",s.name),setRemoveFor(null)):setRemoveFor(s.name)} style={{background:removeFor===s.name?RED:"none",color:removeFor===s.name?"#fff":RED,border:`1px solid ${removeFor===s.name?RED:"#e8c9c6"}`,borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:3}}>
+                      <Trash2 size={11}/>{removeFor===s.name?"Confirm":"Remove"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {pinFor===s.name&&s.name!==user.name&&pinEditor}
+            </div>
+          ))}
+          {/* add staff */}
+          <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
+            <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Full name" style={{...IS,flex:2,minWidth:140,fontSize:14}}/>
+            <input value={newPin} onChange={e=>setNewPin(e.target.value)} placeholder="PIN" inputMode="numeric" style={{...IS,flex:1,minWidth:80,fontSize:14}}/>
+            <button onClick={()=>{const n=newName.trim();const p=newPin.trim()||"0000";if(!n||staff.some(s=>s.name===n))return;updateStaff([...staff,{name:n,pin:p,role:"staff"}],"Added staff",n);setNewName("");setNewPin("");}} style={{...BP,padding:"10px 14px"}}>
+              <Plus size={15}/>Add
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {/* import (admin) */}
+      {isAdmin&&(
+        <Card title="Import spreadsheet" icon={<Upload size={18}/>}>
+          <p style={PS}>Download your Google Sheet as CSV (File → Download → CSV), then upload it here or paste the rows below. Duplicate items are skipped automatically.</p>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>importCSV(String(r.result));r.readAsText(f);e.target.value="";}}/>
+          <button onClick={()=>fileRef.current.click()} style={{...BP,marginBottom:10}}><Upload size={15}/>Upload CSV file</button>
+          <textarea value={csv} onChange={e=>setCsv(e.target.value)} rows={4} placeholder="…or paste CSV rows here" style={{...IS,resize:"vertical",fontSize:13}}/>
+          {csv.trim()&&<button onClick={()=>{importCSV(csv);setCsv("");}} style={{...BP,marginTop:8}}><Check size={15}/>Import pasted rows</button>}
+        </Card>
+      )}
+
+      {/* export & backup */}
+      {isAdmin&&(
+      <Card title="Export & backup" icon={<Download size={18}/>}>
+        <p style={PS}>The full backup includes <b>everything</b> — items, movement history, audit trail and staff accounts. Download it before making big changes or republishing.</p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={exportCSV} style={BP}><FileText size={15}/>Stock CSV</button>
+          <button onClick={exportBackup} style={BG}><Database size={15}/>Full backup</button>
+        </div>
+      </Card>
+      )}
+
+      {/* restore (admin) */}
+      {isAdmin&&(
+        <Card title="Restore from backup" icon={<RotateCcw size={18}/>}>
+          <p style={PS}>Paste a full backup to restore everything. This <b>replaces all current data</b>, so only use on a fresh or broken copy.</p>
+          <textarea value={restoreText} onChange={e=>setRestoreText(e.target.value)} rows={3} placeholder='Paste backup text here — starts with {"app":"coco-sweets-inventory"…' style={{...IS,resize:"vertical",marginBottom:8,fontSize:12,fontFamily:"monospace"}}/>
+          <input ref={restoreRef} type="file" accept=".json,application/json,text/plain" style={{display:"none"}} onChange={e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>restoreBackup(String(r.result));r.readAsText(f);e.target.value="";}}/>
+          {!confirmRestore?(
+            <button onClick={()=>setConfirmRestore(true)} style={BG}><RotateCcw size={15}/>Restore…</button>
+          ):(
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {restoreText.trim()&&<button onClick={()=>{restoreBackup(restoreText);setRestoreText("");setConfirmRestore(false);}} style={{...BD}}><AlertTriangle size={14}/>Replace all data</button>}
+              <button onClick={()=>{restoreRef.current.click();setConfirmRestore(false);}} style={BG}><Upload size={14}/>Choose file</button>
+              <button onClick={()=>setConfirmRestore(false)} style={BG}><X size={14}/>Cancel</button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* data info */}
+      <Card title="Data & storage" icon={<Info size={18}/>}>
+        <p style={{...PS,marginBottom:0}}>All data — items, movements, audit trail and staff — is saved in shared online storage. Everyone opening the team link sees the same data. Your sign-in is remembered on your device only. PINs are a simple access layer; keep the link within the team.</p>
+      </Card>
+
+      <div style={{textAlign:"center",fontSize:12,color:"#9a8576",padding:"4px 0 10px",display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+        <Database size={11}/>{fmt(itemCount)} items · {fmt(logCount)} movements · saves automatically
+      </div>
+    </div>
+  );
+}
+
+// ─── Export modal ────────────────────────────────────────────
+function ExportModal({title,filename,text,summary,onClose,flash}) {
+  const taRef=useRef(null);
+  const copy=async()=>{
+    try{await navigator.clipboard.writeText(text);flash("Copied! Paste it somewhere safe ✓");}
+    catch(e){if(taRef.current){taRef.current.focus();taRef.current.select();try{document.execCommand("copy");flash("Copied! ✓");}catch(e2){flash("Press Ctrl/Cmd+C to copy the selected text");}}}
+  };
+  const tryDl=()=>{try{const a=document.createElement("a");a.href="data:text/plain;charset=utf-8,"+encodeURIComponent(text);a.download=filename;a.click();}catch(e){flash("Download blocked — use Copy instead","err");}};
+  return (
+    <Modal onClose={onClose} title={title}>
+      {summary&&(
+        <div style={{background:GREEN_BG,borderRadius:12,padding:"12px 14px",marginBottom:12}}>
+          <div style={{fontSize:12,fontWeight:700,color:GREEN,marginBottom:8,display:"flex",alignItems:"center",gap:5}}><CheckCircle size={13}/>This backup contains</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            {[["Inventory items",summary.items,<Package size={12}/>],["Stock movements",summary.movements,<Activity size={12}/>],["Audit entries",summary.auditEntries,<ClipboardList size={12}/>],["Staff accounts",summary.staff,<User size={12}/>]].map(([label,count,icon])=>(
+              <div key={label} style={{fontSize:13,color:GREEN,display:"flex",alignItems:"center",gap:5}}>
+                {icon}<b>{fmt(count)}</b> {label}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <p style={PS}>Copy everything below and save it — paste into a note, email yourself, or save to WhatsApp. To restore, paste this same text into the Restore box.</p>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <button onClick={copy} style={{...BP,flex:1,justifyContent:"center"}}><Download size={15}/>Copy to clipboard</button>
+        <button onClick={tryDl} style={BG}><Download size={15}/></button>
+      </div>
+      <textarea ref={taRef} readOnly value={text} rows={8} onFocus={e=>e.target.select()} style={{...IS,fontSize:11,fontFamily:"monospace",resize:"vertical",color:"#6f5b4d"}}/>
+      <div style={{fontSize:12,color:"#9a8576",marginTop:6,display:"flex",alignItems:"center",gap:4}}><Info size={11}/>{Math.round(text.length/1024)} KB — tap the box to select all</div>
+    </Modal>
+  );
+}
+
+// ─── Shared pieces ───────────────────────────────────────────
+const PS = { fontSize:13.5, color:"#6f5b4d", margin:"0 0 12px", lineHeight:1.55 };
+
+function Field({label,icon,children}) {
+  return (
+    <label style={{display:"block",marginBottom:10}}>
+      <div style={{fontSize:12,fontWeight:600,marginBottom:5,color:"#6f5b4d",textAlign:"left",display:"flex",alignItems:"center",gap:4}}>{icon&&<span style={{opacity:.7}}>{icon}</span>}{label}</div>
+      {children}
+    </label>
+  );
+}
+function Card({title,icon,children}) {
+  return (
+    <section style={{background:"#fff",borderRadius:14,border:`1px solid ${CREAM_DARK}`,padding:"16px 16px 14px"}}>
+      <h2 style={{fontFamily:"'Patrick Hand',cursive",fontSize:20,margin:"0 0 10px",color:BERRY,display:"flex",alignItems:"center",gap:8}}>{icon}{title}</h2>
+      {children}
+    </section>
+  );
+}
+function TabBtn({active,onClick,children}) {
+  return (
+    <button onClick={onClick} style={{flex:1,padding:"9px 0",borderRadius:10,border:`1.5px solid ${active?BERRY:CREAM_DARK}`,background:active?BERRY:"#fff",color:active?"#fff":CHOC,fontWeight:600,fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+      {children}
+    </button>
+  );
+}
+function BigToggle({active,color,onClick,children}) {
+  return (
+    <button onClick={onClick} style={{flex:1,padding:"12px 0",borderRadius:12,border:`2px solid ${active?color:CREAM_DARK}`,background:active?color:"#fff",color:active?"#fff":CHOC,fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:7}}>
+      {children}
+    </button>
+  );
+}
+function Modal({title,children,onClose}) {
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(59,36,24,.5)",zIndex:40,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:CREAM,width:"100%",maxWidth:560,maxHeight:"92vh",overflowY:"auto",borderRadius:"20px 20px 0 0",padding:"6px 0 0"}}>
+        {/* drag handle */}
+        <div style={{width:36,height:4,background:CREAM_DARK,borderRadius:99,margin:"10px auto 0"}}/>
+        <div style={{padding:"12px 16px 24px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <h2 style={{fontFamily:"'Patrick Hand',cursive",fontSize:22,margin:0,color:BERRY,paddingRight:10,lineHeight:1.2}}>{title}</h2>
+            <button onClick={onClose} aria-label="Close" style={{background:"#fff",border:`1.5px solid ${CREAM_DARK}`,borderRadius:99,width:34,height:34,fontSize:16,cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",color:"#9a8576"}}><X size={16}/></button>
+          </div>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+function Empty({icon,children}) {
+  return (
+    <div style={{textAlign:"center",padding:"56px 16px",color:"#9a8576",lineHeight:1.7}}>
+      <div style={{opacity:.2,marginBottom:12}}>{icon}</div>
+      <div style={{fontSize:14}}>{children}</div>
+    </div>
+  );
+}
+
+// ── Supabase storage (replaces window.storage from artifact sandbox) ──
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
+
+window.storage = {
+  async get(key, shared) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/storage?key=eq.${key}&select=value`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    const rows = await res.json();
+    if (!rows || !rows.length) throw new Error('not found');
+    return { key, value: rows[0].value };
+  },
+  async set(key, value, shared) {
+    await fetch(`${SUPABASE_URL}/rest/v1/storage`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}`,
+        'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates'
+      },
+      body: JSON.stringify({ key, value })
+    });
+    return { key, value };
+  },
+  async delete(key, shared) {
+    await fetch(`${SUPABASE_URL}/rest/v1/storage?key=eq.${key}`, {
+      method: 'DELETE',
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    });
+    return { key, deleted: true };
+  }
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
