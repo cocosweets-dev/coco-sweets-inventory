@@ -1,5 +1,47 @@
 import React, { useState, useEffect, useMemo, useRef } from "react"
-import { Package, Search, Plus, AlertTriangle, CheckCircle, ArrowDownCircle, ArrowUpCircle, ClipboardList, Activity, Settings, LogOut, User, Shield, ChevronRight, Trash2, Download, Upload, RotateCcw, Eye, EyeOff, Save, X, Check, BarChart, Clock, Tag, Briefcase, Layers, Minus, RefreshCw, FileText, Database, Lock, Info, Pencil, AlertCircle, ArrowDown, ArrowUp, Box, ShoppingCart, Star } from "lucide-react"
+import {
+  Package, Search, Plus, AlertTriangle, CheckCircle, ArrowDownCircle, ArrowUpCircle,
+  ClipboardList, Activity, Settings, LogOut, User, Shield, ChevronRight,
+  Trash2, Download, Upload, RotateCcw, Eye, EyeOff, Save, X, Check,
+  BarChart, Clock, Tag, Briefcase, Layers, Minus, RefreshCw,
+  FileText, Database, Lock, Info, Pencil, AlertCircle,
+  ArrowDown, ArrowUp, Box, ShoppingCart, Star
+} from "lucide-react"
+
+// ── Supabase storage ──────────────────────────────────────────
+const SUPABASE_URL = 'https://sfolcdqfvgysrxbcaqgh.supabase.co'
+const SUPABASE_KEY = 'sb_publishable_7A5jiAPpD59A5CobDokSTg_nk29VCOw'
+const SB_HDR = {
+  apikey: SUPABASE_KEY,
+  Authorization: 'Bearer ' + SUPABASE_KEY,
+  'Content-Type': 'application/json',
+}
+window.storage = {
+  async get(key) {
+    const res = await fetch(
+      SUPABASE_URL + '/rest/v1/storage?key=eq.' + encodeURIComponent(key) + '&select=value',
+      { headers: SB_HDR }
+    )
+    const rows = await res.json()
+    if (!rows || !rows.length) throw new Error('not found')
+    return { key, value: rows[0].value }
+  },
+  async set(key, value) {
+    await fetch(SUPABASE_URL + '/rest/v1/storage', {
+      method: 'POST',
+      headers: Object.assign({}, SB_HDR, { Prefer: 'resolution=merge-duplicates' }),
+      body: JSON.stringify({ key, value }),
+    })
+    return { key, value }
+  },
+  async delete(key) {
+    await fetch(
+      SUPABASE_URL + '/rest/v1/storage?key=eq.' + encodeURIComponent(key),
+      { method: 'DELETE', headers: SB_HDR }
+    )
+    return { key, deleted: true }
+  },
+}
 
 
 // ─── Brand tokens ───────────────────────────────────────────
@@ -95,7 +137,7 @@ const BG = { background:"#fff", color:BERRY, border:`1.5px solid ${CREAM_DARK}`,
 const BD = { background:RED, color:"#fff", border:"none", borderRadius:10, padding:"9px 16px", fontWeight:700, fontSize:14, cursor:"pointer", display:"inline-flex", alignItems:"center", gap:6 };
 
 // ─── App ────────────────────────────────────────────────────
-function App() {
+export default function App() {
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
   const [tab, setTab] = useState("stock");
@@ -1160,41 +1202,4 @@ function Empty({icon,children}) {
       <div style={{fontSize:14}}>{children}</div>
     </div>
   );
-}
--e 
-export default App
-
-// ── Supabase storage shim ──────────────────────────────────────
-const SUPABASE_URL = 'https://sfolcdqfvgysrxbcaqgh.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_7A5jiAPpD59A5CobDokSTg_nk29VCOw';
-
-const headers = {
-  apikey: SUPABASE_KEY,
-  Authorization: `Bearer ${SUPABASE_KEY}`,
-  'Content-Type': 'application/json',
-};
-
-if (typeof window !== 'undefined') {
-  window.storage = {
-    async get(key) {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/storage?key=eq.${encodeURIComponent(key)}&select=value`, { headers });
-      const rows = await res.json();
-      if (!rows || !rows.length) throw new Error('not found');
-      return { key, value: rows[0].value };
-    },
-    async set(key, value) {
-      await fetch(`${SUPABASE_URL}/rest/v1/storage`, {
-        method: 'POST',
-        headers: { ...headers, Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify({ key, value }),
-      });
-      return { key, value };
-    },
-    async delete(key) {
-      await fetch(`${SUPABASE_URL}/rest/v1/storage?key=eq.${encodeURIComponent(key)}`, {
-        method: 'DELETE', headers,
-      });
-      return { key, deleted: true };
-    },
-  };
 }
