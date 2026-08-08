@@ -140,6 +140,7 @@ const BD = { background:RED, color:"#fff", border:"none", borderRadius:10, paddi
 export default function App() {
   const [data, setData] = useState(null);
   const [user, setUser] = useState(null);
+  const [lastName, setLastName] = useState("");
   const [tab, setTab] = useState("stock");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
@@ -158,7 +159,8 @@ export default function App() {
       if(!d) d={items:SEED_ITEMS,log:[],audit:[],staff:DEFAULT_STAFF};
       setData(d);
       setKillSwitch(d.killSwitch||false);
-      try { const s=await window.storage.get("coco-session-v2",false); if(s&&s.value){const sess=JSON.parse(s.value);const m=d.staff.find(x=>x.name===sess.name);if(m)setUser({name:m.name,role:m.role});} } catch(e){}
+      // only restore the last selected name for convenience — never auto sign in
+      try { const s=await window.storage.get("coco-session-v2",false); if(s&&s.value){const sess=JSON.parse(s.value);setLastName(sess.name||"");} } catch(e){}
     })();
   }, []);
 
@@ -386,7 +388,7 @@ export default function App() {
         ::-webkit-scrollbar-thumb{background:${CREAM_DARK};border-radius:4px;}
       `}</style>
 
-      {!user ? <LoginScreen staff={data.staff} onSignIn={signIn} onEmergencyReset={emergencyReset} killSwitch={data.killSwitch||false}/> : (
+      {!user ? <LoginScreen staff={data.staff} onSignIn={signIn} onEmergencyReset={emergencyReset} killSwitch={data.killSwitch||false} defaultName={lastName}/> : (
         <>
           {/* ── Header ── */}
           <header style={{background:`linear-gradient(135deg,${BERRY} 0%,#5c0330 100%)`,color:"#fff",padding:"12px 16px",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 12px rgba(135,6,70,.3)"}}>
@@ -454,8 +456,8 @@ export default function App() {
 }
 
 // ─── Login ───────────────────────────────────────────────────
-function LoginScreen({staff,onSignIn,onEmergencyReset,killSwitch}) {
-  const [name,setName]=useState(staff[0]?staff[0].name:"");
+function LoginScreen({staff,onSignIn,onEmergencyReset,killSwitch,defaultName}) {
+  const [name,setName]=useState(defaultName||(staff[0]?staff[0].name:""));
   const [pin,setPin]=useState("");
   const [err,setErr]=useState("");
   const [showPin,setShowPin]=useState(false);
