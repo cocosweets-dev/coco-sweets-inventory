@@ -438,8 +438,8 @@ export default function App() {
             ))}
           </nav>
 
-          {openItem&&<ItemModal item={items.find(i=>i.id===openItem.id)||openItem} staff={data.staff} user={user} isAdmin={isAdmin} onClose={()=>setOpenItem(null)} onMove={addMovement} onSave={saveItem} onDelete={deleteItem} log={data.log}/>}
-          {showAdd&&<ItemForm onClose={()=>setShowAdd(false)} onSave={f=>saveItem(f,null)} codePreview={f=>genCode(f,data.items)}/>}
+          {openItem&&<ItemModal item={items.find(i=>i.id===openItem.id)||openItem} staff={data.staff} user={user} isAdmin={isAdmin} onClose={()=>setOpenItem(null)} onMove={addMovement} onSave={saveItem} onDelete={deleteItem} log={data.log} items={items}/>}
+          {showAdd&&<ItemForm onClose={()=>setShowAdd(false)} onSave={f=>saveItem(f,null)} codePreview={f=>genCode(f,data.items)} items={data.items}/>}
           {exportModal&&<ExportModal {...exportModal} onClose={()=>setExportModal(null)} flash={flash}/>}
         </>
       )}
@@ -698,7 +698,7 @@ function BulkBar({count,isAdmin,onExport,onDelete,onClear}) {
 }
 
 // ─── Item modal ──────────────────────────────────────────────
-function ItemModal({item,staff,user,isAdmin,onClose,onMove,onSave,onDelete,log}) {
+function ItemModal({item,staff,user,isAdmin,onClose,onMove,onSave,onDelete,log,items}) {
   const [mode,setMode]=useState("move");
   const [dir,setDir]=useState("out");
   const [qty,setQty]=useState("");
@@ -804,14 +804,103 @@ function ItemModal({item,staff,user,isAdmin,onClose,onMove,onSave,onDelete,log})
           )}
         </div>
       ) : (
-        <ItemForm initial={item} embedded onSave={f=>onSave(f,item.id)} onDelete={isAdmin?()=>onDelete(item.id):null}/>
+        <ItemForm initial={item} embedded onSave={f=>onSave(f,item.id)} onDelete={isAdmin?()=>onDelete(item.id):null} items={items}/>
       )}
     </Modal>
   );
 }
 
+// ─── Smart dropdown (existing values + search + "add new") ──────
+function SmartDropdown({value,onChange,items,field,placeholder,style}) {
+  const opts=useMemo(()=>{
+    const seen=new Set();
+    (items||[]).forEach(it=>{ const v=(it[field]||"").trim(); if(v) seen.add(v); });
+    return Array.from(seen).sort((a,b)=>a.localeCompare(b));
+  },[items,field]);
+  const [open,setOpen]=useState(false);
+  const [q,setQ]=useState("");
+  const [adding,setAdding]=useState(false);
+  const [draft,setDraft]=useState("");
+  const inputRef=useRef(null);
+  const addRef=useRef(null);
+  const wrapRef=useRef(null);
+
+  // close on outside click
+  useEffect(()=>{
+    if(!open) return;
+    const h=e=>{ if(wrapRef.current&&!wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown",h);
+    return ()=>document.removeEventListener("mousedown",h);
+  },[open]);
+
+  const filtered=q.trim()?opts.filter(o=>o.toLowerCase().includes(q.toLowerCase())):opts;
+
+  const pick=v=>{ onChange(v); setOpen(false); setQ(""); setAdding(false); };
+
+  const commitDraft=()=>{
+    const v=draft.trim();
+    if(v){ onChange(v); setOpen(false); setQ(""); setAdding(false); setDraft(""); }
+  };
+
+  return (
+    <div ref={wrapRef} style={{position:"relative"}}>
+      {/* trigger */}
+      <div onClick={()=>{ setOpen(o=>!o); setQ(""); setAdding(false); }}
+        style={{...style,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",userSelect:"none",minHeight:38}}>
+        <span style={{color:value?"inherit":"#b0a090",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{value||placeholder||"Select…"}</span>
+        <span style={{fontSize:10,color:"#9a8576",marginLeft:4,flexShrink:0}}>▾</span>
+      </div>
+      {open&&(
+        <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,right:0,zIndex:200,background:"#fff",border:`1.5px solid ${CREAM_DARK}`,borderRadius:12,boxShadow:"0 8px 24px rgba(59,36,24,.13)",overflow:"hidden"}}>
+          {/* search */}
+          <div style={{padding:"8px 10px 6px",borderBottom:`1px solid ${CREAM_DARK}`}}>
+            <div style={{position:"relative"}}>
+              <Search size={13} style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",color:"#9a8576",pointerEvents:"none"}}/>
+              <input ref={inputRef} autoFocus value={q} onChange={e=>setQ(e.target.value)}
+                placeholder="Search…"
+                style={{width:"100%",padding:"6px 8px 6px 26px",border:`1.5px solid ${CREAM_DARK}`,borderRadius:8,fontSize:13,background:CREAM,boxSizing:"border-box",outline:"none"}}/>
+            </div>
+          </div>
+          {/* options */}
+          <div style={{maxHeight:180,overflowY:"auto"}}>
+            {filtered.length===0&&!adding&&(
+              <div style={{padding:"10px 14px",fontSize:13,color:"#9a8576"}}>No matches</div>
+            )}
+            {filtered.map(o=>(
+              <div key={o} onClick={()=>pick(o)}
+                style={{padding:"9px 14px",fontSize:13,cursor:"pointer",background:value===o?CREAM:"#fff",fontWeight:value===o?700:400,borderBottom:`1px solid ${CREAM}`}}
+                onMouseEnter={e=>e.currentTarget.style.background=CREAM}
+                onMouseLeave={e=>e.currentTarget.style.background=value===o?CREAM:"#fff"}>
+                {o}
+              </div>
+            ))}
+          </div>
+          {/* add new */}
+          <div style={{borderTop:`1px solid ${CREAM_DARK}`,padding:"8px 10px"}}>
+            {!adding?(
+              <button type="button" onClick={()=>{ setAdding(true); setTimeout(()=>addRef.current&&addRef.current.focus(),30); }}
+                style={{background:"none",border:`1.5px dashed ${CREAM_DARK}`,borderRadius:8,padding:"6px 12px",cursor:"pointer",color:BERRY,fontWeight:700,fontSize:13,width:"100%",textAlign:"left"}}>
+                + Add new…
+              </button>
+            ):(
+              <div style={{display:"flex",gap:6}}>
+                <input ref={addRef} value={draft} onChange={e=>setDraft(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==="Enter"){e.preventDefault();commitDraft();} if(e.key==="Escape"){setAdding(false);setDraft("");} }}
+                  placeholder="Type new value…"
+                  style={{flex:1,padding:"6px 10px",border:`1.5px solid ${BERRY}`,borderRadius:8,fontSize:13,outline:"none"}}/>
+                <button type="button" onClick={commitDraft} style={{background:BERRY,color:"#fff",border:"none",borderRadius:8,padding:"0 12px",cursor:"pointer",fontWeight:700,fontSize:13,flexShrink:0}}><Check size={13}/></button>
+                <button type="button" onClick={()=>{setAdding(false);setDraft("");}} style={{background:"none",border:`1.5px solid ${CREAM_DARK}`,borderRadius:8,padding:"0 9px",cursor:"pointer",color:"#9a8576",flexShrink:0}}><X size={13}/></button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Item form ───────────────────────────────────────────────
-function ItemForm({initial,onClose,onSave,onDelete,embedded,codePreview}) {
+function ItemForm({initial,onClose,onSave,onDelete,embedded,codePreview,items}) {
   const [f,setF]=useState({code:(initial&&initial.code)||"",name:(initial&&initial.name)||"",dept:(initial&&initial.dept)||"",brand:(initial&&initial.brand)||"",type:(initial&&initial.type)||"",unit:(initial&&initial.unit)||"",balance:initial!=null?initial.balance:"",reorder:initial!=null?initial.reorder:0});
   const [confirmDel,setConfirmDel]=useState(false);
   const set=k=>e=>setF({...f,[k]:e.target.value});
@@ -820,14 +909,20 @@ function ItemForm({initial,onClose,onSave,onDelete,embedded,codePreview}) {
     <div>
       <Field label="Item name *" icon={<Package size={13}/>}><input value={f.name} onChange={set("name")} placeholder="e.g. 12X12 SOFT PAPER GOLD" style={IS}/></Field>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-        <Field label="Brand" icon={<Tag size={13}/>}><input value={f.brand} onChange={set("brand")} style={IS}/></Field>
-        <Field label="Department" icon={<Briefcase size={13}/>}><input value={f.dept} onChange={set("dept")} placeholder="e.g. Bakery" style={IS}/></Field>
+        <Field label="Brand" icon={<Tag size={13}/>}>
+          <SmartDropdown value={f.brand} onChange={v=>setF({...f,brand:v})} items={items} field="brand" placeholder="e.g. Dangote" style={IS}/>
+        </Field>
+        <Field label="Department" icon={<Briefcase size={13}/>}>
+          <SmartDropdown value={f.dept} onChange={v=>setF({...f,dept:v})} items={items} field="dept" placeholder="e.g. Bakery" style={IS}/>
+        </Field>
         <Field label="Type" icon={<Layers size={13}/>}>
           <select value={f.type} onChange={set("type")} style={IS}>
             {ITEM_TYPES.map(t=><option key={t} value={t}>{t||"General"}</option>)}
           </select>
         </Field>
-        <Field label="Unit" icon={<Minus size={13}/>}><input value={f.unit} onChange={set("unit")} placeholder="pcs / grams / roll" style={IS}/></Field>
+        <Field label="Unit" icon={<Minus size={13}/>}>
+          <SmartDropdown value={f.unit} onChange={v=>setF({...f,unit:v})} items={items} field="unit" placeholder="pcs / grams / roll" style={IS}/>
+        </Field>
         <Field label="Reorder level" icon={<AlertTriangle size={13}/>}><input type="number" inputMode="decimal" value={f.reorder} onChange={set("reorder")} style={IS}/></Field>
         {!initial&&<Field label="Opening stock" icon={<BarChart size={13}/>}><input type="number" inputMode="decimal" value={f.balance} onChange={set("balance")} placeholder="0" style={IS}/></Field>}
       </div>
