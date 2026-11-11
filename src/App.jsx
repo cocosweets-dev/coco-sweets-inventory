@@ -1054,6 +1054,7 @@ function DictionaryView({items,onRenameField,isAdmin}) {
   const [editing,setEditing]=useState(null); // {field,oldVal,newVal,count}
   const [draft,setDraft]=useState("");
   const [confirmNew,setConfirmNew]=useState(false);
+  const [search,setSearch]=useState("");
 
   const fields=[
     {key:"dept",label:"Department",icon:<Briefcase size={15}/>},
@@ -1061,7 +1062,7 @@ function DictionaryView({items,onRenameField,isAdmin}) {
     {key:"unit",label:"Unit",icon:<Minus size={15}/>},
   ];
 
-  const opts=useMemo(()=>{
+  const allOpts=useMemo(()=>{
     const seen={};
     (items||[]).forEach(it=>{
       const v=(it[section]||"").trim();
@@ -1069,6 +1070,7 @@ function DictionaryView({items,onRenameField,isAdmin}) {
     });
     return Object.entries(seen).sort((a,b)=>a[0].localeCompare(b[0]));
   },[items,section]);
+  const opts=search.trim()?allOpts.filter(([v])=>v.toLowerCase().includes(search.toLowerCase())):allOpts;
 
   const startEdit=(val,count)=>{
     setEditing({field:section,oldVal:val,count});
@@ -1097,14 +1099,19 @@ function DictionaryView({items,onRenameField,isAdmin}) {
       {/* section tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16}}>
         {fields.map(f=>(
-          <button key={f.key} onClick={()=>{setSection(f.key);cancelEdit();}}
+          <button key={f.key} onClick={()=>{setSection(f.key);cancelEdit();setSearch("");}}
             style={{flex:1,padding:"9px 0",borderRadius:10,border:`1.5px solid ${section===f.key?BERRY:CREAM_DARK}`,background:section===f.key?BERRY:"#fff",color:section===f.key?"#fff":CHOC,fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
             {f.icon}{f.label}
           </button>
         ))}
       </div>
 
-      <div style={{fontSize:12,color:"#9a8576",marginBottom:10}}>{opts.length} {fields.find(f=>f.key===section)?.label} values · tap pencil to rename</div>
+      <div style={{position:"relative",marginBottom:10}}>
+        <Search size={15} style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#9a8576",pointerEvents:"none"}}/>
+        <input value={search} onChange={e=>{setSearch(e.target.value);cancelEdit();}} placeholder={`Search ${fields.find(f=>f.key===section)?.label.toLowerCase()}s…`} style={{...IS,paddingLeft:36,width:"100%",boxSizing:"border-box"}}/>
+        {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#9a8576",display:"flex"}}><X size={15}/></button>}
+      </div>
+      <div style={{fontSize:12,color:"#9a8576",marginBottom:10}}>{opts.length}{search?` of ${allOpts.length}`:""} {fields.find(f=>f.key===section)?.label} values · tap pencil to rename</div>
 
       {/* list */}
       <div style={{background:"#fff",borderRadius:14,border:`1px solid ${CREAM_DARK}`,overflow:"hidden"}}>
