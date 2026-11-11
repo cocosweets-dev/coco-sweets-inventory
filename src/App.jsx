@@ -329,6 +329,15 @@ export default function App() {
     } catch(e) { flash("Couldn't read that backup — copy the full text","err"); }
   };
 
+  const renameField = (field, oldVal, newVal) => {
+    const affected=data.items.filter(i=>(i[field]||"").trim()===oldVal.trim());
+    const nextItems=data.items.map(i=>(i[field]||"").trim()===oldVal.trim()?{...i,[field]:newVal}:i);
+    let next={...data,items:nextItems};
+    next=withAudit(next,"Dictionary rename",`${field}: "${oldVal}" → "${newVal}" · ${affected.length} item${affected.length!==1?"s":""} updated`);
+    persist(next);
+    flash(`"${oldVal}" renamed to "${newVal}" on ${affected.length} item${affected.length!==1?"s":""} ✓`);
+  };
+
   const bulkDelete = (sel) => {
     const ids=new Set(sel.map(i=>i.id));
     let next={...data,items:data.items.filter(i=>!ids.has(i.id))};
@@ -421,6 +430,7 @@ export default function App() {
           <main style={{maxWidth:880,margin:"0 auto",padding:"16px 12px"}}>
             {tab==="stock"&&<StockView {...{visible,search,setSearch,filter,setFilter,setOpenItem,setShowAdd,isAdmin}} onBulkDelete={bulkDelete} onBulkExport={bulkExport}/>}
             {tab==="log"&&<LogView log={data.log} audit={data.audit} isAdmin={isAdmin} user={user} onDeletePosting={deletePosting}/>}
+            {tab==="dict"&&<DictionaryView items={items} onRenameField={renameField} isAdmin={isAdmin}/>}
             {tab==="more"&&<MoreView staff={data.staff} updateStaff={updateStaff} isAdmin={isAdmin} user={user} importCSV={importCSV} exportCSV={exportCSV} exportBackup={exportBackup} restoreBackup={restoreBackup} signOut={signOut} itemCount={items.length} logCount={data.log.length} killSwitch={data.killSwitch||false} toggleKillSwitch={toggleKillSwitch}/>}
           </main>
 
@@ -429,6 +439,7 @@ export default function App() {
             {[
               ["stock","Stock",<Package size={20}/>,<Package size={20} fill={BERRY}/>],
               ["log","Activity",<Activity size={20}/>,<Activity size={20}/>],
+              ["dict","Dictionary",<Tag size={20}/>,<Tag size={20}/>],
               ["more","More",<Settings size={20}/>,<Settings size={20}/>],
             ].map(([k,label,icon,activeIcon])=>(
               <button key={k} onClick={()=>setTab(k)} style={{flex:1,padding:"10px 0 13px",border:"none",background:"none",cursor:"pointer",color:tab===k?BERRY:"#9a8576",fontWeight:tab===k?700:500,fontSize:11,letterSpacing:.5,display:"flex",flexDirection:"column",alignItems:"center",gap:3,borderTop:tab===k?`2.5px solid ${BERRY}`:"2.5px solid transparent"}}>
@@ -1033,6 +1044,134 @@ function LogView({log,audit,isAdmin,user,onDeletePosting}) {
       ) : (
         <Empty icon={<Lock size={36}/>}>The audit trail is only visible to admins.</Empty>
       )}
+    </div>
+  );
+}
+
+// ─── Dictionary view ─────────────────────────────────────────
+function DictionaryView({items,onRenameField,isAdmin}) {
+  const [section,setSection]=useState("dept");
+  const [editing,setEditing]=useState(null); // {field,oldVal,newVal,count}
+  const [draft,setDraft]=useState("");
+  const [confirmNew,setConfirmNew]=useState(false);
+
+  const fields=[
+    {key:"dept",label:"Department",icon:<Briefcase size={15}/>},
+    {key:"brand",label:"Brand",icon:<Tag size={15}/>},
+    {key:"unit",label:"Unit",icon:<Minus size={15}/>},
+  ];
+
+  const opts=useMemo(()=>{
+    const seen={};
+    (items||[]).forEach(it=>{
+      const v=(it[section]||"").trim();
+      if(v) seen[v]=(seen[v]||0)+1;
+    });
+    return Object.entries(seen).sort((a,b)=>a[0].localeCompare(b[0]));
+  },[items,section]);
+
+  const startEdit=(val,count)=>{
+    setEditing({field:section,oldVal:val,count});
+    setDraft(val);
+    setConfirmNew(false);
+  };
+
+  const cancelEdit=()=>{ setEditing(null); setDraft(""); setConfirmNew(false); };
+
+  const doRename=()=>{
+    const newVal=draft.trim();
+    if(!newVal||newVal===editing.oldVal) return cancelEdit();
+    onRenameField(editing.field,editing.oldVal,newVal);
+    cancelEdit();
+  };
+
+  const doCreateNew=()=>{
+    // just close — the new value will appear via SmartDropdown when adding items
+    cancelEdit();
+  };
+
+  if(!isAdmin) return <Empty icon={<Lock size={36}/>}>Dictionary management is only available to admins.</Empty>;
+
+  return (
+    <div>
+      {/* section tabs */}
+      <div style={{display:"flex",gap:6,marginBottom:16}}>
+        {fields.map(f=>(
+          <button key={f.key} onClick={()=>{setSection(f.key);cancelEdit();}}
+            style={{flex:1,padding:"9px 0",borderRadius:10,border:`1.5px solid ${section===f.key?BERRY:CREAM_DARK}`,background:section===f.key?BERRY:"#fff",color:section===f.key?"#fff":CHOC,fontWeight:600,fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:5}}>
+            {f.icon}{f.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{fontSize:12,color:"#9a8576",marginBottom:10}}>{opts.length} {fields.find(f=>f.key===section)?.label} values · tap pencil to rename</div>
+
+      {/* list */}
+      <div style={{background:"#fff",borderRadius:14,border:`1px solid ${CREAM_DARK}`,overflow:"hidden"}}>
+        {opts.length===0&&<Empty icon={<Tag size={32}/>}>No values yet. Add items to populate this list.</Empty>}
+        {opts.map(([val,count])=>(
+          <div key={val}>
+            <div style={{padding:"12px 14px",borderBottom:`1px solid ${CREAM}`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+              <div style={{minWidth:0}}>
+                <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
+                <div style={{fontSize:12,color:"#9a8576",marginTop:1}}>{count} item{count!==1?"s":""}</div>
+              </div>
+              <button onClick={()=>startEdit(val,count)}
+                style={{background:CREAM,border:`1.5px solid ${CREAM_DARK}`,borderRadius:8,padding:"6px 10px",cursor:"pointer",color:BERRY,display:"flex",alignItems:"center",gap:4,fontSize:12,fontWeight:600,flexShrink:0}}>
+                <Pencil size={12}/>Edit
+              </button>
+            </div>
+
+            {/* inline edit panel */}
+            {editing&&editing.oldVal===val&&(
+              <div style={{background:"#fffaf5",padding:"14px 14px 16px",borderBottom:`1px solid ${CREAM_DARK}`,borderTop:`1px solid ${CREAM_DARK}`}}>
+                <div style={{fontWeight:700,fontSize:13,color:CHOC,marginBottom:10}}>Rename "{val}"</div>
+
+                <input value={draft} onChange={e=>setDraft(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter")doRename();if(e.key==="Escape")cancelEdit();}}
+                  style={{width:"100%",padding:"9px 12px",border:`1.5px solid ${BERRY}`,borderRadius:10,fontSize:14,boxSizing:"border-box",marginBottom:10,outline:"none"}}
+                  autoFocus/>
+
+                {draft.trim()&&draft.trim()!==val&&(
+                  <div style={{background:"#FFF3CD",border:"1.5px solid #FFCD3C",borderRadius:10,padding:"10px 12px",marginBottom:10,fontSize:13}}>
+                    <div style={{fontWeight:700,color:"#7a5a00",display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                      <AlertTriangle size={13}/>This will update {count} item{count!==1?"s":""}
+                    </div>
+                    <div style={{color:"#7a5a00"}}>Every item with <b>"{val}"</b> will be changed to <b>"{draft.trim()}"</b>.</div>
+                  </div>
+                )}
+
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={doRename}
+                    disabled={!draft.trim()||draft.trim()===val}
+                    style={{background:(!draft.trim()||draft.trim()===val)?"#ccc":BERRY,color:"#fff",border:"none",borderRadius:10,padding:"9px 16px",cursor:(!draft.trim()||draft.trim()===val)?"not-allowed":"pointer",fontWeight:700,fontSize:13,display:"flex",alignItems:"center",gap:5}}>
+                    <Check size={13}/>Rename & update {count} item{count!==1?"s":""}
+                  </button>
+                  <button onClick={()=>setConfirmNew(true)}
+                    style={{background:"none",border:`1.5px solid ${CREAM_DARK}`,borderRadius:10,padding:"9px 14px",cursor:"pointer",color:CHOC,fontWeight:600,fontSize:13,display:"flex",alignItems:"center",gap:5}}>
+                    <Plus size={13}/>Keep old, add as new
+                  </button>
+                  <button onClick={cancelEdit}
+                    style={{background:"none",border:"none",padding:"9px 10px",cursor:"pointer",color:"#9a8576",fontWeight:600,fontSize:13}}>
+                    Cancel
+                  </button>
+                </div>
+
+                {confirmNew&&(
+                  <div style={{marginTop:12,background:GREEN_BG,border:`1.5px solid ${GREEN}`,borderRadius:10,padding:"10px 12px",fontSize:13,color:GREEN}}>
+                    <b>"{draft.trim()}"</b> will appear as a new option in the dropdown. The {count} existing item{count!==1?"s":""} will keep <b>"{val}"</b> unchanged.
+                    <div style={{marginTop:8,display:"flex",gap:8}}>
+                      <button onClick={doCreateNew} style={{background:GREEN,color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontWeight:700,fontSize:12}}>
+                        <span style={{display:"flex",alignItems:"center",gap:4}}><Check size={12}/>Got it, close</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
